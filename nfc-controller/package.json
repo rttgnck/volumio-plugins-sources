@@ -24,7 +24,6 @@
 		"boot_priority": 10
 	},
 	"engines": {
-		"node": ">=12.22.12 <23.3.0",
 		"volumio": ">=3.779.0 <4.0.0"
 	},
 	"dependencies": {
