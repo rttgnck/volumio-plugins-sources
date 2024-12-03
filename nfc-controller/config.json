@@ -1,3 +1,11 @@
 {
- 
+    "spi":{
+        "type": "number" ,
+        "value": 0
+    },
+    "pollingRate":{
+        "type": "number",
+        "value": 400
+    }
 }
+  

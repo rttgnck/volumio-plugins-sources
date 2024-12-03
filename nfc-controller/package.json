@@ -1,6 +1,6 @@
 {
 	"name": "nfc-controller",
-	"version": "1.0.0",
+	"version": "3-0.2.6",
 	"description": "Read/Write NFC tags to control Volumio",
 	"main": "index.js",
 	"scripts": {
@@ -10,8 +10,8 @@
 	"license": "ISC",
 	"repository": "https://github.com/yourname/yourrepo",
 	"volumio_info": {
-		"prettyName": "NFC-Controller",
-		"icon": "fa-lightbulb-o",
+		"prettyName": "NFC Controller",
+		"icon": "fa-microchip",
 		"plugin_type": "user_interface",
 		"architectures": [
 			"amd64",
@@ -21,16 +21,22 @@
 		"os": [
 			"buster"
 		],
-		"details": "Lorem ipsum",
-		"changelog": "Lorem ipsum"
+		"boot_priority": 10
 	},
 	"engines": {
 		"node": ">=12.22.12 <23.3.0",
 		"volumio": ">=3.779.0 <4.0.0"
 	},
 	"dependencies": {
-		"fs-extra": "^0.28.0",
+		"fs-extra": "^10.1.0",
 		"kew": "^0.7.0",
-		"v-conf": "^1.4.0"
+		"lokijs": "^1.5.12",
+		"mfrc522-rpi": "^2.1.3",
+		"socket.io-client": "^2.5.0",
+		"v-conf": "^1.4.2",
+		"wiringpi-node": "^2.4.4"
+	},
+	"devDependencies": {
+		"release-it": "^15.10.0"
 	}
 }
