@@ -1,6 +1,6 @@
 {
 	"name": "nfc-controller",
-	"version": "3-0.2.6",
+	"version": "1.2.6",
 	"description": "Read/Write NFC tags to control Volumio",
 	"main": "index.js",
 	"scripts": {
