@@ -219,7 +219,11 @@ class MFRC522Daemon {
     }
 }
 
-// module.exports = MFRC522Daemon;'use strict';
+module.exports = MFRC522Daemon;
+
+
+////////OLD CODE THAT WORKS, BUT DOESNT NOT RETURN THE UID////////
+// 'use strict';
 
 // const i2c = require('i2c-bus');
 // const serializeUid = require('./serializeUid');
