@@ -593,5 +593,3 @@ module.exports = class PN532 {
         return null;
     }
 }
-
-module.exports = PN532;
