@@ -7,37 +7,39 @@ const serializeUid = require('./serializeUid');
 const REGISTERS = {
     COMMAND: 0x01,
     COM_IRQ: 0x04,
-    FIFO_LEVEL: 0x0A,
-    FIFO_DATA: 0x09,
+    ERROR: 0x06,
+    STATUS1: 0x07,
     STATUS2: 0x08,
+    FIFO_DATA: 0x09,
+    FIFO_LEVEL: 0x0A,
+    CONTROL: 0x0C,
     BIT_FRAMING: 0x0D,
-    COLL: 0x0E,
     MODE: 0x11,
-    TX_MODE: 0x12,
-    RX_MODE: 0x13,
     TX_CONTROL: 0x14,
-    TX_ASK: 0x15,
-    VERSION: 0x37
+    TX_AUTO: 0x15,
+    VERSION: 0x37,
+    ANTICOLL: 0x93
 };
 
 // MFRC522 Commands
 const COMMANDS = {
     IDLE: 0x00,
-    MEM: 0x01,
-    GENERATE_RANDOM_ID: 0x02,
-    CALC_CRC: 0x03,
-    TRANSMIT: 0x04,
-    NO_CMD_CHANGE: 0x07,
+    AUTH: 0x0E,
     RECEIVE: 0x08,
+    TRANSMIT: 0x04,
     TRANSCEIVE: 0x0C,
-    MF_AUTHENT: 0x0E,
-    SOFT_RESET: 0x0F
+    RESET_PHASE: 0x0F,
+    CALC_CRC: 0x03
 };
 
-/*
-    Using MFRC522 over I2C bus instead of SPI.
-    Still implementing polling mechanism since interrupts aren't reliable.
-*/
+// MFRC522 Status
+const STATUS = {
+    OK: 0,
+    ERROR: 2,
+    NOTAGERR: 1,
+    TIMEOUT: 3
+};
+
 class MFRC522Daemon {
     constructor(i2cBusNumber = 1, onCardDetected, onCardRemoved, logger = console, interval = 500, debounceThreshold = 5) {
         const self = this;
@@ -45,7 +47,7 @@ class MFRC522Daemon {
         self.interval = interval;
         self.logger = logger;
         self.i2cBusNumber = i2cBusNumber;
-        self.i2cAddress = 0x24; // MFRC522 I2C address (0x24 confirmed with i2cdetect)
+        self.i2cAddress = 0x24; // MFRC522 I2C address
         
         self.logger.info(`MFRC522Daemon: Using I2C bus ${i2cBusNumber} with address 0x${self.i2cAddress.toString(16)}`);
         
@@ -57,35 +59,35 @@ class MFRC522Daemon {
         self.onCardRemoved = onCardRemoved;
         self.debounceThreshold = debounceThreshold;
         
-        // Don't open I2C bus in constructor - do it in init()
         self.i2cBus = null;
-
-        // Bind the watcher function to maintain context
         this.watcher = this.watcher.bind(this);
     }
 
     async init() {
         try {
-            // Open I2C bus
             this.logger.info(`Opening I2C bus ${this.i2cBusNumber}`);
             this.i2cBus = i2c.openSync(this.i2cBusNumber);
 
-            // Perform soft reset
-            await this.writeRegister(REGISTERS.COMMAND, COMMANDS.SOFT_RESET);
+            // Reset the MFRC522
+            await this.reset();
             
             // Wait for reset to complete
             await new Promise(resolve => setTimeout(resolve, 50));
             
-            // Check if the reader is responding
+            // Check version
             const version = await this.readRegister(REGISTERS.VERSION);
             this.logger.info('MFRC522 version:', version ? version.toString(16) : 'unknown');
             
-            // The MFRC522 should return 0x91 or 0x92 as version
-            // But some clones might return different values
             if (!version) {
                 this.logger.error('Failed to initialize MFRC522. No response from device');
                 return false;
             }
+
+            // Initialize the reader
+            await this.writeRegister(REGISTERS.TX_MODE, 0x00);
+            await this.writeRegister(REGISTERS.RX_MODE, 0x00);
+            // Reset ModWidthReg
+            await this.writeRegister(0x24, 0x26);
 
             this.logger.info('MFRC522 initialized successfully');
             return true;
@@ -98,6 +100,87 @@ class MFRC522Daemon {
                 this.logger.error('Also check: ls -l /dev/i2c*');
             }
             return false;
+        }
+    }
+
+    async reset() {
+        await this.writeRegister(REGISTERS.COMMAND, COMMANDS.RESET_PHASE);
+    }
+
+    async checkCardPresence() {
+        try {
+            // Clear all interrupt flags
+            await this.writeRegister(REGISTERS.COM_IRQ, 0x7F);
+            
+            // Send REQA command
+            await this.writeRegister(REGISTERS.BIT_FRAMING, 0x07);  // 7 bits
+            
+            const result = await this.transceive([0x26], 7);  // REQA command
+            return result !== null;
+        } catch (err) {
+            this.logger.error('Error checking card presence:', err);
+            return false;
+        }
+    }
+
+    async readCardUID() {
+        try {
+            // Send anti-collision command
+            const result = await this.transceive([REGISTERS.ANTICOLL, 0x20], 0);
+            if (!result || result.length !== 5) {
+                return null;
+            }
+
+            const uid = result.slice(0, 4);
+            return serializeUid(uid);
+        } catch (err) {
+            this.logger.error('Error reading card UID:', err);
+            return null;
+        }
+    }
+
+    async transceive(data, validBits = 0) {
+        try {
+            // Prepare for transmission
+            await this.writeRegister(REGISTERS.COMMAND, COMMANDS.IDLE);
+            await this.writeRegister(REGISTERS.COM_IRQ, 0x7F);
+            await this.writeRegister(REGISTERS.FIFO_LEVEL, 0x80);  // Clear FIFO
+
+            // Write data to FIFO
+            for (const byte of data) {
+                await this.writeRegister(REGISTERS.FIFO_DATA, byte);
+            }
+
+            // Set bit framing
+            if (validBits !== 0) {
+                await this.writeRegister(REGISTERS.BIT_FRAMING, validBits);
+            }
+
+            // Start transmission
+            await this.writeRegister(REGISTERS.COMMAND, COMMANDS.TRANSCEIVE);
+            
+            // Wait for completion
+            let status;
+            const timeout = Date.now() + 100;  // 100ms timeout
+            do {
+                status = await this.readRegister(REGISTERS.COM_IRQ);
+                if (Date.now() > timeout) {
+                    this.logger.error('Transceive timeout');
+                    return null;
+                }
+            } while ((status & 0x30) === 0);
+
+            // Read response
+            const length = await this.readRegister(REGISTERS.FIFO_LEVEL);
+            const result = [];
+            for (let i = 0; i < length; i++) {
+                result.push(await this.readRegister(REGISTERS.FIFO_DATA));
+            }
+
+            return result;
+        } catch (err) {
+            this.logger.error('Error in transceive:', err);
+            return null;
         }
     }
 
@@ -137,54 +220,6 @@ class MFRC522Daemon {
                 }
             });
         });
-    }
-
-    async checkCardPresence() {
-        try {
-            // Enable antenna
-            let value = await this.readRegister(REGISTERS.TX_CONTROL);
-            if ((value & 0x03) !== 0x03) {
-                await this.writeRegister(REGISTERS.TX_CONTROL, value | 0x03);
-            }
-
-            // Send REQA command
-            await this.writeRegister(REGISTERS.BIT_FRAMING, 0x07);    // TxLastBits = 7
-            await this.writeRegister(REGISTERS.FIFO_DATA, 0x26);      // REQA command
-            await this.writeRegister(REGISTERS.COMMAND, COMMANDS.TRANSCEIVE);
-            
-            // Wait for response
-            await new Promise(resolve => setTimeout(resolve, 10)); // Add small delay for command execution
-            const status = await this.readRegister(REGISTERS.COM_IRQ);
-            return (status & 0x20) !== 0; // Check if a card responded
-        } catch (err) {
-            this.logger.error('Error checking card presence:', err);
-            return false;
-        }
-    }
-
-    async readCardUID() {
-        try {
-            // Send anti-collision command
-            await this.writeRegister(REGISTERS.BIT_FRAMING, 0x00);
-            await this.writeRegister(REGISTERS.FIFO_DATA, 0x93);  // Anti-collision command
-            await this.writeRegister(REGISTERS.COMMAND, COMMANDS.TRANSCEIVE);
-
-            // Read response
-            const uidLength = await this.readRegister(REGISTERS.FIFO_LEVEL);
-            if (uidLength !== 5) { // UID + BCC
-                return null;
-            }
-
-            const uid = [];
-            for (let i = 0; i < 4; i++) {
-                uid.push(await this.readRegister(REGISTERS.FIFO_DATA));
-            }
-
-            return serializeUid(uid);
-        } catch (err) {
-            this.logger.error('Error reading card UID:', err);
-            return null;
-        }
     }
 
     async start() {
