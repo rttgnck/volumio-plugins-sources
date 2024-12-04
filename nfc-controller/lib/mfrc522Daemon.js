@@ -1,6 +1,7 @@
 'use strict';
 
 const Mfrc522 = require('mfrc522-rpi');
+const SPI = require('pi-spi');
 const serializeUid = require('./serializeUid');
 
 /* 
@@ -12,17 +13,22 @@ const serializeUid = require('./serializeUid');
 	*/
 class MFRC522Daemon {
     constructor(spiChannel, onCardDetected, onCardRemoved, logger = console, interval = 500, debounceThreshold = 5) {
-        // Initialize MFRC522 with SPI channel
-        const mfrc522 = new Mfrc522(spiChannel);
+        // Initialize SPI bus
+        const spi = SPI.initialize(`/dev/spidev0.${spiChannel}`);
+        
+        // Initialize MFRC522 with SPI instance
+        const mfrc522 = new Mfrc522(spi);
 
         const self = this;
 
         self.interval = interval;
         self.logger = logger;
         self.mfrc522 = mfrc522;
+        self.spi = spi;
 
         self.intervalHandle = null;
         self.currentUID = null;
+        self.debounceCounter = 0;
 
         self.watcher = function () {
             //# reset card
@@ -57,7 +63,12 @@ class MFRC522Daemon {
     }
 
     stop() {
-        clearInterval(this.intervalHandle);
+        if (this.intervalHandle) {
+            clearInterval(this.intervalHandle);
+        }
+        if (this.spi) {
+            this.spi.close();
+        }
     }
 }
 
