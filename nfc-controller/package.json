@@ -28,6 +28,7 @@
 	},
 	"dependencies": {
 		"fs-extra": "^10.1.0",
+		"i2c-bus": "^5.2.3",
 		"kew": "^0.7.0",
 		"lokijs": "^1.5.12",
 		"mfrc522-rpi": "^2.1.3",
