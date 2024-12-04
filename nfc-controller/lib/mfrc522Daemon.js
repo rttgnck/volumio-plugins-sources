@@ -15,6 +15,12 @@ class SimpleMFRC522 {
         try {
             this.bus = await i2c.openPromisified(this.busNumber);
             this.logger.info(`Opened I2C bus ${this.busNumber}`);
+            
+            // Clear any pending data by doing an initial read
+            await this.readCard();
+            // Small delay to ensure the reader is stable
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
             return true;
         } catch (err) {
             this.logger.error('Failed to open I2C bus:', err);
@@ -32,13 +38,17 @@ class SimpleMFRC522 {
             const buffer = Buffer.alloc(4);
             await this.bus.i2cRead(this.address, buffer.length, buffer);
             
-            if (buffer[0] === 0 && buffer[1] === 0 && buffer[2] === 0 && buffer[3] === 0) {
+            // Check if all bytes are 0 or all bytes are 255 (common no-card states)
+            const isAllZero = buffer.every(byte => byte === 0);
+            const isAllFF = buffer.every(byte => byte === 0xFF);
+            
+            if (isAllZero || isAllFF) {
                 return null;
             }
 
             return serializeUid(Array.from(buffer));
         } catch (err) {
-            this.logger.error('Error reading card:', err);
+            this.logger.error('Error reading card:', err.message);
             return null;
         }
     }
@@ -64,6 +74,7 @@ class MFRC522Daemon {
         this.intervalHandle = null;
         this.currentUID = null;
         this.debounceCounter = 0;
+        this.isFirstRead = true;
         
         this.onCardDetected = onCardDetected;
         this.onCardRemoved = onCardRemoved;
@@ -107,9 +118,16 @@ class MFRC522Daemon {
         try {
             const uid = await this.reader.readCard();
             
+            // Skip the first read after initialization
+            if (this.isFirstRead) {
+                this.isFirstRead = false;
+                return;
+            }
+            
             if (!uid) {
                 if (this.currentUID) {
                     if (this.debounceCounter >= this.debounceThreshold) {
+                        this.logger.info('Card removed:', this.currentUID);
                         this.onCardRemoved(this.currentUID);
                         this.currentUID = null;
                         this.debounceCounter = 0;
@@ -120,14 +138,17 @@ class MFRC522Daemon {
             } else {
                 this.debounceCounter = 0;
                 if (!this.currentUID || this.currentUID !== uid) {
+                    this.logger.info('New card detected:', uid);
                     this.currentUID = uid;
                     this.onCardDetected(this.currentUID);
                 }
             }
         } catch (err) {
-            this.logger.error('Error reading MFRC522:', err);
-            // Try to reinitialize on error
-            await this.reader.init();
+            this.logger.error('Error in watcher:', err.message);
+            if (err.code === 'ENODEV' || err.code === 'EIO') {
+                this.logger.info('Attempting to reinitialize reader...');
+                await this.reader.init();
+            }
         }
     }
 }
