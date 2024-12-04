@@ -57,6 +57,10 @@ class MFRC522Daemon {
         self.currentUID = null;
         self.debounceCounter = 0;
 
+        self.onCardDetected = onCardDetected;
+        self.onCardRemoved = onCardRemoved;
+        self.debounceThreshold = debounceThreshold;
+
         self.watcher = function () {
             try {
                 // Read card presence by checking if a card is in the field
@@ -110,22 +114,30 @@ class MFRC522Daemon {
         }
     }
 
-    async writeRegister(register, value) {
-        try {
-            await this.i2cBus.writeByte(this.i2cAddress, register, value);
-        } catch (err) {
-            this.logger.error(`Error writing to register ${register.toString(16)}:`, err);
-            throw err;
-        }
+    writeRegister(register, value) {
+        return new Promise((resolve, reject) => {
+            this.i2cBus.writeByte(this.i2cAddress, register, value, (err) => {
+                if (err) {
+                    this.logger.error(`Error writing to register ${register.toString(16)}:`, err);
+                    reject(err);
+                } else {
+                    resolve();
+                }
+            });
+        });
     }
 
-    async readRegister(register) {
-        try {
-            return await this.i2cBus.readByte(this.i2cAddress, register);
-        } catch (err) {
-            this.logger.error(`Error reading from register ${register.toString(16)}:`, err);
-            throw err;
-        }
+    readRegister(register) {
+        return new Promise((resolve, reject) => {
+            this.i2cBus.readByte(this.i2cAddress, register, (err, value) => {
+                if (err) {
+                    this.logger.error(`Error reading from register ${register.toString(16)}:`, err);
+                    reject(err);
+                } else {
+                    resolve(value);
+                }
+            });
+        });
     }
 
     async checkCardPresence() {
@@ -142,6 +154,7 @@ class MFRC522Daemon {
             await this.writeRegister(REGISTERS.COMMAND, COMMANDS.TRANSCEIVE);
             
             // Wait for response
+            await new Promise(resolve => setTimeout(resolve, 10)); // Add small delay for command execution
             const status = await this.readRegister(REGISTERS.COM_IRQ);
             return (status & 0x20) !== 0; // Check if a card responded
         } catch (err) {
