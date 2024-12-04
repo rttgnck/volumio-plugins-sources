@@ -67,7 +67,7 @@ NFCController.prototype.onStart = function() {
             self.logger.info("NFCController started");
             defer.resolve();
         })
-        .fail(function(err) {
+        .catch(function(err) {
             self.logger.error("Failed to start NFCController:", err);
             defer.reject(err);
         });

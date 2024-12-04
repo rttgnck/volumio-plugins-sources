@@ -47,6 +47,8 @@ class MFRC522Daemon {
         self.i2cBusNumber = i2cBusNumber;
         self.i2cAddress = 0x24; // MFRC522 I2C address (0x24 confirmed with i2cdetect)
         
+        self.logger.info(`MFRC522Daemon: Using I2C bus ${i2cBusNumber} with address 0x${self.i2cAddress.toString(16)}`);
+        
         self.intervalHandle = null;
         self.currentUID = null;
         self.debounceCounter = 0;
@@ -76,13 +78,18 @@ class MFRC522Daemon {
             
             // Check if the reader is responding
             const version = await this.readRegister(REGISTERS.VERSION);
-            if (version === 0x91 || version === 0x92) {
-                this.logger.info('MFRC522 initialized successfully. Version:', version.toString(16));
-                return true;
-            } else {
-                this.logger.error('Failed to initialize MFRC522. Invalid version:', version.toString(16));
+            this.logger.info('MFRC522 version:', version ? version.toString(16) : 'unknown');
+            
+            // The MFRC522 should return 0x91 or 0x92 as version
+            // But some clones might return different values
+            if (!version) {
+                this.logger.error('Failed to initialize MFRC522. No response from device');
                 return false;
             }
+
+            this.logger.info('MFRC522 initialized successfully');
+            return true;
+
         } catch (err) {
             this.logger.error('Error initializing MFRC522:', err);
             if (err.code === 'ENOENT') {
@@ -96,6 +103,12 @@ class MFRC522Daemon {
 
     writeRegister(register, value) {
         return new Promise((resolve, reject) => {
+            if (!this.i2cBus) {
+                reject(new Error('I2C bus not initialized'));
+                return;
+            }
+            
+            this.logger.debug(`Writing to register 0x${register.toString(16)}: 0x${value.toString(16)}`);
             this.i2cBus.writeByte(this.i2cAddress, register, value, (err) => {
                 if (err) {
                     this.logger.error(`Error writing to register ${register.toString(16)}:`, err);
@@ -109,11 +122,17 @@ class MFRC522Daemon {
 
     readRegister(register) {
         return new Promise((resolve, reject) => {
+            if (!this.i2cBus) {
+                reject(new Error('I2C bus not initialized'));
+                return;
+            }
+
             this.i2cBus.readByte(this.i2cAddress, register, (err, value) => {
                 if (err) {
                     this.logger.error(`Error reading from register ${register.toString(16)}:`, err);
                     reject(err);
                 } else {
+                    this.logger.debug(`Read from register 0x${register.toString(16)}: 0x${value.toString(16)}`);
                     resolve(value);
                 }
             });
