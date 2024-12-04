@@ -34,7 +34,8 @@
 		"mfrc522-rpi": "^2.1.3",
 		"socket.io-client": "^2.5.0",
 		"v-conf": "^1.4.2",
-		"wiringpi-node": "^2.4.4"
+		"wiringpi-node": "^2.4.4",
+		"@rakwireless/pn532-i2c": "^1.0.0"
 	},
 	"devDependencies": {
 		"release-it": "^15.10.0"

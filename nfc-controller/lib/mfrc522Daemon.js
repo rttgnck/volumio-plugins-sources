@@ -1,117 +1,49 @@
 'use strict';
 
-const i2c = require('i2c-bus');
+const PN532 = require('@rakwireless/pn532-i2c');
 const serializeUid = require('./serializeUid');
-
-// PN532 Commands
-const PN532_COMMAND = {
-    GET_FIRMWARE_VERSION: 0x02,
-    SAM_CONFIGURATION: 0x14,
-    READ_PASSIVE_TARGET: 0x4A
-};
 
 class SimpleMFRC522 {
     constructor(busNumber = 1, address = 0x24, logger = console) {
-        this.address = address;
-        this.busNumber = busNumber;
         this.logger = logger;
-        this.bus = null;
+        this.pn532 = new PN532(busNumber);
     }
 
     async init() {
         try {
-            this.bus = await i2c.openPromisified(this.busNumber);
-            this.logger.info(`Opened I2C bus ${this.busNumber}`);
+            await this.pn532.begin();
             
-            // Get firmware version like Python code
-            const version = await this.getFirmwareVersion();
+            const version = await this.pn532.getFirmwareVersion();
             if (!version) {
                 this.logger.error("Didn't find PN532 board");
                 return false;
             }
-            this.logger.info('Found PN532 with firmware version:', version);
+            this.logger.info('Found PN532 with firmware version:', version.toString(16));
 
             // Configure the reader
-            await this.SAMConfig();
+            await this.pn532.SAMConfig();
             
             return true;
         } catch (err) {
-            this.logger.error('Failed to open I2C bus:', err);
-            return false;
-        }
-    }
-
-    async getFirmwareVersion() {
-        try {
-            const cmd = Buffer.from([0x00, PN532_COMMAND.GET_FIRMWARE_VERSION]);
-            await this.bus.i2cWrite(this.address, cmd.length, cmd);
-            
-            // Wait for response
-            await new Promise(resolve => setTimeout(resolve, 50));
-            
-            const response = Buffer.alloc(4);
-            await this.bus.i2cRead(this.address, response.length, response);
-            
-            return response[0];
-        } catch (err) {
-            this.logger.error('Error getting firmware version:', err);
-            return null;
-        }
-    }
-
-    async SAMConfig() {
-        try {
-            // SAMConfig command with normal mode and timeout of 50ms
-            const cmd = Buffer.from([0x00, PN532_COMMAND.SAM_CONFIGURATION, 0x01, 0x14, 0x01]);
-            await this.bus.i2cWrite(this.address, cmd.length, cmd);
-            
-            // Wait for response
-            await new Promise(resolve => setTimeout(resolve, 50));
-            
-            return true;
-        } catch (err) {
-            this.logger.error('Error configuring SAM:', err);
+            this.logger.error('Failed to initialize PN532:', err);
             return false;
         }
     }
 
     async readCard() {
-        if (!this.bus) {
-            throw new Error('I2C bus not initialized');
-        }
-
         try {
-            // InListPassiveTarget command for ISO14443A cards (like in Python)
-            const cmd = Buffer.from([
-                0x00, 
-                PN532_COMMAND.READ_PASSIVE_TARGET,
-                0x01,  // MaxTg: maximum number of targets to find
-                0x00   // BrTy: 106 kbps type A (ISO/IEC14443 Type A)
-            ]);
+            const success = await this.pn532.readPassiveTargetID('ISO14443A');
             
-            await this.bus.i2cWrite(this.address, cmd.length, cmd);
-            
-            // Wait for card detection
-            await new Promise(resolve => setTimeout(resolve, 50));
-            
-            // Read response
-            const response = Buffer.alloc(7);  // Expect 7 bytes for UID
-            await this.bus.i2cRead(this.address, response.length, response);
-            
-            // Check if we got a valid response (first byte should be response code)
-            if (response[0] !== 0x4B) {  // Response code for InListPassiveTarget
+            if (!success) {
                 return null;
             }
 
-            // Extract UID from response
-            const uid = response.slice(1, 5);  // 4-byte UID
-            
+            const uid = success.uid;
+            if (!uid || uid.length === 0) {
+                return null;
+            }
+
             this.logger.info('Read card UID:', uid);
-            
-            if (uid.every(byte => byte === 0) || uid.every(byte => byte === 0xFF)) {
-                return null;
-            }
-
             return serializeUid(Array.from(uid));
         } catch (err) {
             this.logger.error('Error reading card:', err.message);
@@ -120,13 +52,11 @@ class SimpleMFRC522 {
     }
 
     async close() {
-        if (this.bus) {
-            try {
-                await this.bus.close();
-                this.bus = null;
-            } catch (err) {
-                this.logger.error('Error closing I2C bus:', err);
-            }
+        try {
+            // The RAKwireless library might not need explicit cleanup
+            this.pn532 = null;
+        } catch (err) {
+            this.logger.error('Error closing PN532:', err);
         }
     }
 }
@@ -211,10 +141,8 @@ class MFRC522Daemon {
             }
         } catch (err) {
             this.logger.error('Error in watcher:', err.message);
-            if (err.code === 'ENODEV' || err.code === 'EIO') {
-                this.logger.info('Attempting to reinitialize reader...');
-                await this.reader.init();
-            }
+            // Attempt to reinitialize on error
+            await this.reader.init();
         }
     }
 }
