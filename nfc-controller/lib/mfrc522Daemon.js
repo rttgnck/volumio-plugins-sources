@@ -1,6 +1,6 @@
 'use strict';
 
-const mfrc522 = require('mfrc522-rpi');
+const Mfrc522 = require('mfrc522-rpi');
 const serializeUid = require('./serializeUid');
 
 /* 
@@ -12,22 +12,24 @@ const serializeUid = require('./serializeUid');
 	*/
 class MFRC522Daemon {
     constructor(spiChannel, onCardDetected, onCardRemoved, logger = console, interval = 500, debounceThreshold = 5) {
-        mfrc522.initWiringPi(spiChannel);
+        // Initialize MFRC522 with SPI channel
+        const mfrc522 = new Mfrc522(spiChannel);
 
         const self = this;
 
         self.interval = interval;
         self.logger = logger;
+        self.mfrc522 = mfrc522;
 
         self.intervalHandle = null;
         self.currentUID = null;
 
         self.watcher = function () {
             //# reset card
-            mfrc522.reset();
+            self.mfrc522.reset();
 
             //# Scan for cards
-            let response = mfrc522.findCard();
+            let response = self.mfrc522.findCard();
             //self.logger.info('NFC reader daemon:', JSON.stringify(response));
             if (!response.status) {
                 if (self.currentUID) {
@@ -39,7 +41,7 @@ class MFRC522Daemon {
                     }
                 }
             } else {
-                const uid = serializeUid(mfrc522.getUid().data);
+                const uid = serializeUid(self.mfrc522.getUid().data);
                 self.debounceCounter = 0;
                 if (!self.currentUID || self.currentUID !== uid) {
                     self.currentUID = uid;
