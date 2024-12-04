@@ -37,16 +37,20 @@ class SimpleMFRC522 {
             // Read card ID (4 bytes)
             const buffer = Buffer.alloc(4);
             await this.bus.i2cRead(this.address, buffer.length, buffer);
-            
+            this.logger.info('Read buffer:', buffer);
+
             // Check if all bytes are 0 or all bytes are 255 (common no-card states)
             const isAllZero = buffer.every(byte => byte === 0);
             const isAllFF = buffer.every(byte => byte === 0xFF);
+            this.logger.info('Buffer check - All Zero:', isAllZero, 'All FF:', isAllFF);
             
             if (isAllZero || isAllFF) {
+                this.logger.warn('No card detected (all bytes are zero or 255)');
                 return null;
             }
 
-            return serializeUid(Array.from(buffer));
+            // return serializeUid(Array.from(buffer));
+            return null;
         } catch (err) {
             this.logger.error('Error reading card:', err.message);
             return null;
