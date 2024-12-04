@@ -66,15 +66,7 @@ class MFRC522Daemon {
         try {
             // Open I2C bus
             this.logger.info(`Opening I2C bus ${this.i2cBusNumber}`);
-            this.i2cBus = await new Promise((resolve, reject) => {
-                const bus = i2c.open(this.i2cBusNumber, (err) => {
-                    if (err) {
-                        reject(err);
-                        return;
-                    }
-                    resolve(bus);
-                });
-            });
+            this.i2cBus = i2c.openSync(this.i2cBusNumber);
 
             // Perform soft reset
             await this.writeRegister(REGISTERS.COMMAND, COMMANDS.SOFT_RESET);
@@ -95,6 +87,8 @@ class MFRC522Daemon {
             this.logger.error('Error initializing MFRC522:', err);
             if (err.code === 'ENOENT') {
                 this.logger.error(`Could not open I2C bus ${this.i2cBusNumber}. Make sure I2C is enabled and the bus exists.`);
+                this.logger.error('Try: sudo raspi-config -> Interface Options -> I2C -> Enable');
+                this.logger.error('Also check: ls -l /dev/i2c*');
             }
             return false;
         }
@@ -174,14 +168,28 @@ class MFRC522Daemon {
         }
     }
 
-    start() {
-        this.logger.info('NFC Daemon:', `going to poll the reader every ${this.interval}ms`);
-        this.intervalHandle = setInterval(this.watcher, this.interval);
+    async start() {
+        try {
+            this.logger.info('NFC Daemon: Initializing...');
+            const initialized = await this.init();
+            if (!initialized) {
+                this.logger.error('Failed to initialize NFC reader. Not starting watcher.');
+                return false;
+            }
+            
+            this.logger.info('NFC Daemon:', `going to poll the reader every ${this.interval}ms`);
+            this.intervalHandle = setInterval(this.watcher, this.interval);
+            return true;
+        } catch (err) {
+            this.logger.error('Error starting NFC Daemon:', err);
+            return false;
+        }
     }
 
     stop() {
         if (this.intervalHandle) {
             clearInterval(this.intervalHandle);
+            this.intervalHandle = null;
         }
         if (this.i2cBus) {
             try {

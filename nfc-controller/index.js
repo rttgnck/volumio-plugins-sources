@@ -53,10 +53,6 @@ NFCController.prototype.onStart = function() {
     });
 
     // Configuration default values
-    if (!self.config.get('spi')) {
-        self.config.set('spi', 0);
-    }
-
     if (!self.config.get('pollingRate')) {
         self.config.set('pollingRate', 500);
     }
@@ -65,10 +61,15 @@ NFCController.prototype.onStart = function() {
         self.config.set('debounceThreshold', 1);
     }
 
+    // Start the NFC daemon
     self.registerWatchDaemon()
         .then(function() {
             self.logger.info("NFCController started");
             defer.resolve();
+        })
+        .fail(function(err) {
+            self.logger.error("Failed to start NFCController:", err);
+            defer.reject(err);
         });
 
     return defer.promise;
@@ -225,38 +226,53 @@ NFCController.prototype.handleTokenRemoved = function(uid) {
     }
 };
 
-NFCController.prototype.registerWatchDaemon = function() {
+NFCController.prototype.registerWatchDaemon = async function() {
     const self = this;
 
     self.logger.info(`${MY_LOG_NAME} Registering a thread to poll the NFC reader`);
 
-    const spiChannel = self.config.get('spi');
+    // Use i2c bus 1 by default
+    const i2cBusNumber = 1;
     const pollingRate = self.config.get('pollingRate');
     const debounceThreshold = self.config.get('debounceThreshold');
 
-    self.logger.info(MY_LOG_NAME, 'SPI channel', spiChannel);
+    self.logger.info(MY_LOG_NAME, 'i2c bus number', i2cBusNumber);
     self.logger.info(MY_LOG_NAME, 'polling rate', pollingRate);
     self.logger.info(MY_LOG_NAME, 'debounce threshold', debounceThreshold);
 
     self.nfcDaemon = new MFRC522Daemon(
-        spiChannel, 
-        self.handleTokenDetected.bind(this), 
-        self.handleTokenRemoved.bind(this), 
-        self.logger, 
-        pollingRate, 
+        i2cBusNumber,
+        self.handleTokenDetected.bind(self),
+        self.handleTokenRemoved.bind(self),
+        self.logger,
+        pollingRate,
         debounceThreshold
     );
 
-    self.nfcDaemon.start();
-    return libQ.resolve();
+    try {
+        const started = await self.nfcDaemon.start();
+        if (!started) {
+            self.logger.error(`${MY_LOG_NAME}: Failed to start NFC daemon`);
+            return libQ.reject(new Error('Failed to start NFC daemon'));
+        }
+        return libQ.resolve();
+    } catch (err) {
+        self.logger.error(`${MY_LOG_NAME}: Error starting NFC daemon:`, err);
+        return libQ.reject(err);
+    }
 };
 
 NFCController.prototype.unRegisterWatchDaemon = function() {
     const self = this;
+    const defer = libQ.defer();
 
     self.logger.info(`${MY_LOG_NAME}: Stopping NFC daemon`);
-    self.nfcDaemon.stop();
-    return libQ.resolve();
+    if (self.nfcDaemon) {
+        self.nfcDaemon.stop();
+        self.nfcDaemon = null;
+    }
+    defer.resolve();
+    return defer.promise;
 };
 
 NFCController.prototype.assignPlaylist = function({ playlist }) {
@@ -303,14 +319,6 @@ NFCController.prototype.unassignToken = function(data = null) {
         self.commandRouter.pushToastMessage('success', MY_LOG_NAME, `Token ${tokenUid} unassigned (was ${unassignedPlaylist})`);
     }
 };
-
-// 'use strict';
-
-// var libQ = require('kew');
-// var fs=require('fs-extra');
-// var config = new (require('v-conf'))();
-// var exec = require('child_process').exec;
-// var execSync = require('child_process').execSync;
 
 
 // module.exports = nfc-controller;
@@ -571,3 +579,4 @@ NFCController.prototype.unassignToken = function(data = null) {
 
 //      return defer.promise;
 // };
+
