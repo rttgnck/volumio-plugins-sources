@@ -1,15 +1,65 @@
 'use strict';
 
-const Mfrc522 = require('mfrc522-rpi');
+const i2c = require('i2c-bus');
 const serializeUid = require('./serializeUid');
 
+class SimpleMFRC522 {
+    constructor(busNumber = 1, address = 0x24, logger = console) {
+        this.address = address;
+        this.busNumber = busNumber;
+        this.logger = logger;
+        this.bus = null;
+    }
+
+    async init() {
+        try {
+            this.bus = await i2c.openPromisified(this.busNumber);
+            this.logger.info(`Opened I2C bus ${this.busNumber}`);
+            return true;
+        } catch (err) {
+            this.logger.error('Failed to open I2C bus:', err);
+            return false;
+        }
+    }
+
+    async readCard() {
+        if (!this.bus) {
+            throw new Error('I2C bus not initialized');
+        }
+
+        try {
+            // Read card ID (4 bytes)
+            const buffer = Buffer.alloc(4);
+            await this.bus.i2cRead(this.address, buffer.length, buffer);
+            
+            if (buffer[0] === 0 && buffer[1] === 0 && buffer[2] === 0 && buffer[3] === 0) {
+                return null;
+            }
+
+            return serializeUid(Array.from(buffer));
+        } catch (err) {
+            this.logger.error('Error reading card:', err);
+            return null;
+        }
+    }
+
+    async close() {
+        if (this.bus) {
+            try {
+                await this.bus.close();
+                this.bus = null;
+            } catch (err) {
+                this.logger.error('Error closing I2C bus:', err);
+            }
+        }
+    }
+}
+
 class MFRC522Daemon {
-    constructor(spiChannel = 0, onCardDetected, onCardRemoved, logger = console, interval = 500, debounceThreshold = 5) {
+    constructor(i2cBusNumber = 1, onCardDetected, onCardRemoved, logger = console, interval = 500, debounceThreshold = 5) {
         this.interval = interval;
         this.logger = logger;
-        this.spiChannel = spiChannel;
-        
-        this.logger.info(`MFRC522Daemon: Using SPI channel ${spiChannel}`);
+        this.i2cBusNumber = i2cBusNumber;
         
         this.intervalHandle = null;
         this.currentUID = null;
@@ -19,72 +69,14 @@ class MFRC522Daemon {
         this.onCardRemoved = onCardRemoved;
         this.debounceThreshold = debounceThreshold;
         
-        this.mfrc522 = null;
+        this.reader = new SimpleMFRC522(i2cBusNumber, 0x24, logger);
         this.watcher = this.watcher.bind(this);
-    }
-
-    async init() {
-        try {
-            this.logger.info('Initializing MFRC522 reader...');
-            
-            // Initialize the MFRC522 with the specified SPI channel
-            this.mfrc522 = new Mfrc522(this.spiChannel).setResetPin(22); // GPIO 22 for reset
-            
-            // Test if the reader is responding
-            const version = this.mfrc522.getVersion();
-            this.logger.info('MFRC522 version:', version.toString(16));
-            
-            if (!version || version === 0x00 || version === 0xFF) {
-                this.logger.error('Failed to initialize MFRC522. Invalid version or no response from device');
-                return false;
-            }
-
-            this.logger.info('MFRC522 initialized successfully');
-            return true;
-
-        } catch (err) {
-            this.logger.error('Error initializing MFRC522:', err);
-            return false;
-        }
-    }
-
-    async checkCardPresence() {
-        try {
-            // Reset the card present status
-            this.mfrc522.reset();
-            
-            // Check if a card is present
-            return this.mfrc522.cardPresent();
-        } catch (err) {
-            this.logger.error('Error checking card presence:', err);
-            return false;
-        }
-    }
-
-    readCardUID() {
-        try {
-            // Find card and get its UID
-            const response = this.mfrc522.findCard();
-            if (!response.status) {
-                return null;
-            }
-
-            const uid = this.mfrc522.getUid();
-            if (!uid.status) {
-                return null;
-            }
-
-            return serializeUid(uid.data);
-        } catch (err) {
-            this.logger.error('Error reading card UID:', err);
-            return null;
-        }
     }
 
     async start() {
         try {
             this.logger.info('NFC Daemon: Initializing...');
-            const initialized = await this.init();
+            const initialized = await this.reader.init();
             if (!initialized) {
                 this.logger.error('Failed to initialize NFC reader. Not starting watcher.');
                 return false;
@@ -104,26 +96,18 @@ class MFRC522Daemon {
             clearInterval(this.intervalHandle);
             this.intervalHandle = null;
         }
-        if (this.mfrc522) {
-            try {
-                this.mfrc522.reset();
-            } catch (err) {
-                this.logger.error('Error stopping MFRC522:', err);
-            }
-            this.mfrc522 = null;
+        if (this.reader) {
+            this.reader.close().catch(err => {
+                this.logger.error('Error closing reader:', err);
+            });
         }
     }
 
     async watcher() {
         try {
-            if (!this.mfrc522) {
-                this.logger.error('MFRC522 not initialized');
-                return;
-            }
-
-            const cardPresent = await this.checkCardPresence();
+            const uid = await this.reader.readCard();
             
-            if (!cardPresent) {
+            if (!uid) {
                 if (this.currentUID) {
                     if (this.debounceCounter >= this.debounceThreshold) {
                         this.onCardRemoved(this.currentUID);
@@ -134,19 +118,16 @@ class MFRC522Daemon {
                     }
                 }
             } else {
-                const uid = this.readCardUID();
-                if (uid) {
-                    this.debounceCounter = 0;
-                    if (!this.currentUID || this.currentUID !== uid) {
-                        this.currentUID = uid;
-                        this.onCardDetected(this.currentUID);
-                    }
+                this.debounceCounter = 0;
+                if (!this.currentUID || this.currentUID !== uid) {
+                    this.currentUID = uid;
+                    this.onCardDetected(this.currentUID);
                 }
             }
         } catch (err) {
             this.logger.error('Error reading MFRC522:', err);
-            // Try to reinitialize if we lost connection
-            await this.init();
+            // Try to reinitialize on error
+            await this.reader.init();
         }
     }
 }
