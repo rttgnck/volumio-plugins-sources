@@ -108,7 +108,20 @@ class NFCDaemon {
                 this.logger.error("Failed to get PN532 firmware version");
                 return false;
             }
-            this.logger.info('Found PN532 with firmware version:', version.toString(16));
+
+            // Format version info properly
+            const versionInfo = {
+                ic: version[0],
+                ver: version[1],
+                rev: version[2],
+                support: version[3]
+            };
+            this.logger.info('Found PN532 with firmware version:', 
+                `IC: 0x${versionInfo.ic.toString(16)}, ` +
+                `Ver: 0x${versionInfo.ver.toString(16)}, ` +
+                `Rev: 0x${versionInfo.rev.toString(16)}, ` +
+                `Support: 0x${versionInfo.support.toString(16)}`
+            );
             
             this.reader.SAM_configuration();
             
