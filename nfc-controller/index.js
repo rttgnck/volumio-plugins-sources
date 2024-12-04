@@ -7,8 +7,6 @@ const socket = io.connect('http://localhost:3000');
 const exec = require('child_process').exec;
 const execSync = require('child_process').execSync;
 
-// Will need to be added from original plugin
-// const MFRC522Daemon = require('./lib/mfrc522Daemon');
 const NFCDaemon = require('./lib/nfcDaemon');
 const getTokenManager = require('./lib/getTokenManager');
 
@@ -241,7 +239,6 @@ NFCController.prototype.registerWatchDaemon = async function() {
     self.logger.info(MY_LOG_NAME, 'polling rate', pollingRate);
     self.logger.info(MY_LOG_NAME, 'debounce threshold', debounceThreshold);
 
-    // self.nfcDaemon = new MFRC522Daemon(
     self.nfcDaemon = new NFCDaemon(
         i2cBusNumber,
         self.handleTokenDetected.bind(self),
