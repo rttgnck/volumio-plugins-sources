@@ -40,59 +40,39 @@ const COMMANDS = {
 */
 class MFRC522Daemon {
     constructor(i2cBusNumber = 1, onCardDetected, onCardRemoved, logger = console, interval = 500, debounceThreshold = 5) {
-        // Initialize I2C bus
-        const i2cBus = i2c.openSync(i2cBusNumber);
-        
-        // MFRC522 default I2C address is 0x28
-        const i2cAddress = 0x24; //ours is 0x24, sudo i2cdetect -y 1
-
         const self = this;
-
+        
         self.interval = interval;
         self.logger = logger;
-        self.i2cBus = i2cBus;
-        self.i2cAddress = i2cAddress;
-
+        self.i2cBusNumber = i2cBusNumber;
+        self.i2cAddress = 0x24; // MFRC522 I2C address (0x24 confirmed with i2cdetect)
+        
         self.intervalHandle = null;
         self.currentUID = null;
         self.debounceCounter = 0;
-
+        
         self.onCardDetected = onCardDetected;
         self.onCardRemoved = onCardRemoved;
         self.debounceThreshold = debounceThreshold;
-
-        self.watcher = function () {
-            try {
-                // Read card presence by checking if a card is in the field
-                const cardPresent = self.checkCardPresence();
-                
-                if (!cardPresent) {
-                    if (self.currentUID) {
-                        if (self.debounceCounter >= debounceThreshold) {
-                            onCardRemoved(self.currentUID);
-                            self.currentUID = null;
-                        } else {
-                            self.debounceCounter++;
-                        }
-                    }
-                } else {
-                    const uid = self.readCardUID();
-                    if (uid) {
-                        self.debounceCounter = 0;
-                        if (!self.currentUID || self.currentUID !== uid) {
-                            self.currentUID = uid;
-                            onCardDetected(self.currentUID);
-                        }
-                    }
-                }
-            } catch (err) {
-                self.logger.error('Error reading MFRC522:', err);
-            }
-        }
+        
+        // Don't open I2C bus in constructor - do it in init()
+        self.i2cBus = null;
     }
 
     async init() {
         try {
+            // Open I2C bus
+            this.logger.info(`Opening I2C bus ${this.i2cBusNumber}`);
+            this.i2cBus = await new Promise((resolve, reject) => {
+                const bus = i2c.open(this.i2cBusNumber, (err) => {
+                    if (err) {
+                        reject(err);
+                        return;
+                    }
+                    resolve(bus);
+                });
+            });
+
             // Perform soft reset
             await this.writeRegister(REGISTERS.COMMAND, COMMANDS.SOFT_RESET);
             
@@ -110,6 +90,9 @@ class MFRC522Daemon {
             }
         } catch (err) {
             this.logger.error('Error initializing MFRC522:', err);
+            if (err.code === 'ENOENT') {
+                this.logger.error(`Could not open I2C bus ${this.i2cBusNumber}. Make sure I2C is enabled and the bus exists.`);
+            }
             return false;
         }
     }
@@ -198,8 +181,56 @@ class MFRC522Daemon {
             clearInterval(this.intervalHandle);
         }
         if (this.i2cBus) {
-            this.i2cBus.closeSync();
+            try {
+                this.i2cBus.closeSync();
+            } catch (err) {
+                this.logger.error('Error closing I2C bus:', err);
+            }
+            this.i2cBus = null;
         }
+    }
+
+    // Make watcher async and add error handling
+    watcher() {
+        const self = this;
+        (async function() {
+            try {
+                if (!self.i2cBus) {
+                    self.logger.error('I2C bus not initialized');
+                    return;
+                }
+
+                // Read card presence by checking if a card is in the field
+                const cardPresent = await self.checkCardPresence();
+                
+                if (!cardPresent) {
+                    if (self.currentUID) {
+                        if (self.debounceCounter >= self.debounceThreshold) {
+                            self.onCardRemoved(self.currentUID);
+                            self.currentUID = null;
+                        } else {
+                            self.debounceCounter++;
+                        }
+                    }
+                } else {
+                    const uid = await self.readCardUID();
+                    if (uid) {
+                        self.debounceCounter = 0;
+                        if (!self.currentUID || self.currentUID !== uid) {
+                            self.currentUID = uid;
+                            self.onCardDetected(self.currentUID);
+                        }
+                    }
+                }
+            } catch (err) {
+                self.logger.error('Error reading MFRC522:', err);
+                // Try to reinitialize if we lost connection
+                if (err.code === 'ENOENT' || err.code === 'EIO') {
+                    self.stop();
+                    await self.init();
+                }
+            }
+        })();
     }
 }
 
