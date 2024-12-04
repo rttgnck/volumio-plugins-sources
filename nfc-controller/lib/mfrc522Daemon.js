@@ -57,6 +57,9 @@ class MFRC522Daemon {
         
         // Don't open I2C bus in constructor - do it in init()
         self.i2cBus = null;
+
+        // Bind the watcher function to maintain context
+        this.watcher = this.watcher.bind(this);
     }
 
     async init() {
@@ -191,46 +194,43 @@ class MFRC522Daemon {
     }
 
     // Make watcher async and add error handling
-    watcher() {
-        const self = this;
-        (async function() {
-            try {
-                if (!self.i2cBus) {
-                    self.logger.error('I2C bus not initialized');
-                    return;
-                }
+    async watcher() {
+        try {
+            if (!this.i2cBus) {
+                this.logger.error('I2C bus not initialized');
+                return;
+            }
 
-                // Read card presence by checking if a card is in the field
-                const cardPresent = await self.checkCardPresence();
-                
-                if (!cardPresent) {
-                    if (self.currentUID) {
-                        if (self.debounceCounter >= self.debounceThreshold) {
-                            self.onCardRemoved(self.currentUID);
-                            self.currentUID = null;
-                        } else {
-                            self.debounceCounter++;
-                        }
-                    }
-                } else {
-                    const uid = await self.readCardUID();
-                    if (uid) {
-                        self.debounceCounter = 0;
-                        if (!self.currentUID || self.currentUID !== uid) {
-                            self.currentUID = uid;
-                            self.onCardDetected(self.currentUID);
-                        }
+            // Read card presence by checking if a card is in the field
+            const cardPresent = await this.checkCardPresence();
+            
+            if (!cardPresent) {
+                if (this.currentUID) {
+                    if (this.debounceCounter >= this.debounceThreshold) {
+                        this.onCardRemoved(this.currentUID);
+                        this.currentUID = null;
+                    } else {
+                        this.debounceCounter++;
                     }
                 }
-            } catch (err) {
-                self.logger.error('Error reading MFRC522:', err);
-                // Try to reinitialize if we lost connection
-                if (err.code === 'ENOENT' || err.code === 'EIO') {
-                    self.stop();
-                    await self.init();
+            } else {
+                const uid = await this.readCardUID();
+                if (uid) {
+                    this.debounceCounter = 0;
+                    if (!this.currentUID || this.currentUID !== uid) {
+                        this.currentUID = uid;
+                        this.onCardDetected(this.currentUID);
+                    }
                 }
             }
-        })();
+        } catch (err) {
+            this.logger.error('Error reading MFRC522:', err);
+            // Try to reinitialize if we lost connection
+            if (err.code === 'ENOENT' || err.code === 'EIO') {
+                this.stop();
+                await this.init();
+            }
+        }
     }
 }
 
