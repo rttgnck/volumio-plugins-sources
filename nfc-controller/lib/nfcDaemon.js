@@ -86,24 +86,47 @@ class PN532_I2C extends PN532 {
         }
         
         this._address = i2cAddress;
-        this._retries = 3;  // Number of retries for I2C operations
-        this._retryDelay = 50;  // Delay between retries in ms
+        this._retries = 3;
+        this._retryDelay = 50;
         this._i2cBusNumber = i2c_bus;
         
         try {
-            // Open I2C bus in synchronized mode
             this._wire = i2c.openSync(this._i2cBusNumber);
-            
-            // Don't try to set I2C speed here - it should be configured in system settings
             this.debug = debug;
             this._lastReadTime = 0;
-            this._minReadInterval = 20; // Minimum time between reads in ms
+            this._minReadInterval = 20;
         } catch (err) {
-            // Provide more detailed error information
             const errorMsg = `Failed to open I2C bus ${this._i2cBusNumber}. ` +
                            `Please ensure I2C is enabled in raspi-config and the user has permissions.\n` +
                            `Original error: ${err.message}`;
             throw new Error(errorMsg);
+        }
+    }
+
+    _wakeup() {
+        // Send wake up command to PN532
+        try {
+            // Send an empty write as a wake-up
+            const wakeupBuffer = Buffer.from([0x00]);
+            this._wire.i2cWriteSync(this._address, wakeupBuffer.length, wakeupBuffer);
+            
+            // Wait a moment for the device to wake up
+            this.delay_ms(100);
+            
+            // Send SAM configuration command to ensure device is in normal mode
+            this.SAM_configuration();
+            
+            // Clear any pending reads
+            try {
+                const clearBuffer = Buffer.alloc(1);
+                this._wire.i2cReadSync(this._address, 1, clearBuffer);
+            } catch (err) {
+                // Ignore read errors during wakeup
+            }
+            
+            this.low_power = false;
+        } catch (err) {
+            throw new Error(`Failed to wake up PN532: ${err.message}`);
         }
     }
 
@@ -131,7 +154,6 @@ class PN532_I2C extends PN532 {
     }
 
     _read_data(count) {
-        // Implement read throttling
         const now = Date.now();
         const timeSinceLastRead = now - this._lastReadTime;
         
@@ -168,6 +190,29 @@ class PN532_I2C extends PN532 {
         
         this._lastReadTime = Date.now();
         return frame.slice(1);
+    }
+
+    _write_data(framebytes) {
+        try {
+            let retries = 0;
+            let success = false;
+            
+            while (!success && retries < this._retries) {
+                try {
+                    this._wire.i2cWriteSync(this._address, framebytes.length, framebytes);
+                    success = true;
+                } catch (err) {
+                    retries++;
+                    if (retries < this._retries) {
+                        this.delay_ms(this._retryDelay);
+                    } else {
+                        throw err;
+                    }
+                }
+            }
+        } catch (err) {
+            throw new Error(`Failed to write to PN532: ${err.message}`);
+        }
     }
 
     close() {
