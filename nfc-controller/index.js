@@ -230,85 +230,35 @@ NFCController.prototype.registerWatchDaemon = async function() {
 
     self.logger.info(`${MY_LOG_NAME} Registering a thread to poll the NFC reader`);
 
-    // Check if I2C is enabled
+    // Use i2c bus 1 by default
+    const i2cBusNumber = 1;
+    const pollingRate = self.config.get('pollingRate');
+    const debounceThreshold = self.config.get('debounceThreshold');
+
+    self.logger.info(MY_LOG_NAME, 'i2c bus number', i2cBusNumber);
+    self.logger.info(MY_LOG_NAME, 'polling rate', pollingRate);
+    self.logger.info(MY_LOG_NAME, 'debounce threshold', debounceThreshold);
+
+    self.nfcDaemon = new NFCDaemon(
+        i2cBusNumber,
+        self.handleTokenDetected.bind(self),
+        self.handleTokenRemoved.bind(self),
+        self.logger,
+        pollingRate,
+        debounceThreshold
+    );
+
     try {
-        const i2cDetectOutput = execSync('i2cdetect -l').toString();
-        if (!i2cDetectOutput.includes('i2c-1')) {
-            throw new Error('I2C bus 1 not found. Please enable I2C in raspi-config');
+        const started = await self.nfcDaemon.start();
+        if (!started) {
+            self.logger.error(`${MY_LOG_NAME}: Failed to start NFC daemon`);
+            return libQ.reject(new Error('Failed to start NFC daemon'));
         }
-
-        // Check for I2C permissions
-        try {
-            fs.accessSync('/dev/i2c-1', fs.constants.R_OK | fs.constants.W_OK);
-        } catch (err) {
-            throw new Error('No permission to access I2C bus. Please ensure user is in i2c group');
-        }
-
-        // Use i2c bus 1 by default
-        const i2cBusNumber = 1;
-        const pollingRate = self.config.get('pollingRate');
-        const debounceThreshold = self.config.get('debounceThreshold');
-
-        self.logger.info(MY_LOG_NAME, 'i2c bus number', i2cBusNumber);
-        self.logger.info(MY_LOG_NAME, 'polling rate', pollingRate);
-        self.logger.info(MY_LOG_NAME, 'debounce threshold', debounceThreshold);
-
-        // Initialize NFC daemon
-        self.nfcDaemon = new NFCDaemon(
-            i2cBusNumber,
-            self.handleTokenDetected.bind(self),
-            self.handleTokenRemoved.bind(self),
-            self.logger,
-            pollingRate,
-            debounceThreshold
-        );
-
-        try {
-            const started = await self.nfcDaemon.start();
-            if (!started) {
-                throw new Error('Failed to start NFC daemon');
-            }
-            return libQ.resolve();
-        } catch (err) {
-            self.logger.error(`${MY_LOG_NAME}: Error starting NFC daemon:`, err);
-            return libQ.reject(err);
-        }
-
+        return libQ.resolve();
     } catch (err) {
-        self.logger.error(`${MY_LOG_NAME}: ${err.message}`);
-        // Add helpful instructions for the user
-        self.commandRouter.pushToastMessage('error', MY_LOG_NAME, 
-            'I2C initialization failed. Please run these commands:\n' +
-            'sudo raspi-config # Enable I2C in Interfacing Options\n' +
-            'sudo usermod -a -G i2c volumio\n' +
-            'sudo reboot');
+        self.logger.error(`${MY_LOG_NAME}: Error starting NFC daemon:`, err);
         return libQ.reject(err);
     }
-};
-
-// Helper method to get Volumio's CPU core
-NFCController.prototype.getVolumioCPUCore = async function() {
-    const self = this;
-    
-    return new Promise((resolve) => {
-        exec('pidstat -p $(pgrep -f "node /volumio") -u 1 1', (error, stdout) => {
-            try {
-                // Parse pidstat output to determine which CPU core Volumio is using most
-                const lines = stdout.split('\n');
-                const cpuLine = lines.find(line => line.includes('node'));
-                if (cpuLine) {
-                    const parts = cpuLine.trim().split(/\s+/);
-                    const cpu = parseInt(parts[parts.length - 1]); // Last column is CPU number
-                    resolve(cpu || 0);
-                } else {
-                    resolve(0);
-                }
-            } catch (err) {
-                self.logger.error('Error determining Volumio CPU core:', err);
-                resolve(0);
-            }
-        });
-    });
 };
 
 NFCController.prototype.unRegisterWatchDaemon = function() {
