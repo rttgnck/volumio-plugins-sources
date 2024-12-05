@@ -1,192 +1,84 @@
 'use strict';
 
-const SerialPort = require('serialport');
+const i2c = require('i2c-bus');
+const PN532 = require('./pn532');
 const serializeUid = require('./serializeUid');
 
-// PN532 Constants
-const _PREAMBLE = 0x00;
-const _STARTCODE1 = 0x00;
-const _STARTCODE2 = 0xFF;
-const _POSTAMBLE = 0x00;
+const _I2C_ADDRESS = 0x24;
 
-const _HOSTTOPN532 = 0xD4;
-const _PN532TOHOST = 0xD5;
-
-const _COMMAND_GETFIRMWAREVERSION = 0x02;
-const _COMMAND_SAMCONFIGURATION = 0x14;
-const _COMMAND_INLISTPASSIVETARGET = 0x4A;
-
-class PN532_UART {
-    constructor(portName = '/dev/ttyS0', logger = console) {
-        this.logger = logger;
-        this.port = null;
-        this.portName = portName;
-    }
-
-    async init() {
-        try {
-            // Open UART port at 115200 baud
-            this.port = new SerialPort(this.portName, {
-                baudRate: 115200,
-                dataBits: 8,
-                parity: 'none',
-                stopBits: 1,
-                flowControl: false
-            });
-
-            // Wait for port to open
-            await new Promise((resolve, reject) => {
-                this.port.on('open', resolve);
-                this.port.on('error', reject);
-            });
-
-            this.logger.info(`Opened UART port ${this.portName}`);
-            
-            // Wake up PN532
-            await this._wakeup();
-            
-            // Get firmware version
-            const version = await this.getFirmwareVersion();
-            if (!version) {
-                this.logger.error("Couldn't get firmware version");
-                return false;
-            }
-
-            this.logger.info('Found PN532 with firmware version:', version);
-
-            // Configure SAM
-            await this.SAMConfig();
-            
-            return true;
-        } catch (err) {
-            this.logger.error('Failed to initialize PN532:', err);
-            return false;
-        }
-    }
-
-    async _wakeup() {
-        // Send wake up sequence
-        await this._write(Buffer.from([0x55, 0x55, 0x00, 0x00, 0x00]));
-        await new Promise(resolve => setTimeout(resolve, 50));
-    }
-
-    async getFirmwareVersion() {
-        try {
-            const response = await this._writeCommand([_COMMAND_GETFIRMWAREVERSION]);
-            if (!response || response.length < 4) return null;
-            return {
-                ic: response[0],
-                ver: response[1],
-                rev: response[2],
-                support: response[3]
-            };
-        } catch (err) {
-            this.logger.error('Error getting firmware version:', err);
-            return null;
-        }
-    }
-
-    async SAMConfig() {
-        try {
-            // Configure SAM to normal mode, timeout 50ms * 20 = 1 second
-            const response = await this._writeCommand([
-                _COMMAND_SAMCONFIGURATION,
-                0x01, // Normal mode
-                0x14, // Timeout 50ms * 20
-                0x01  // Use IRQ pin
-            ]);
-            return response !== null;
-        } catch (err) {
-            this.logger.error('Error configuring SAM:', err);
-            return false;
-        }
-    }
-
-    async readPassiveTargetID() {
-        try {
-            const response = await this._writeCommand([
-                _COMMAND_INLISTPASSIVETARGET,
-                0x01,  // Max targets
-                0x00   // Baud rate (106 kbps type A)
-            ]);
-
-            if (!response || response.length < 7) return null;
-
-            // Check if a card was found
-            if (response[0] !== 0x01) return null;
-
-            // Extract UID
-            const uidLength = response[5];
-            const uid = response.slice(6, 6 + uidLength);
-            
-            return uid;
-        } catch (err) {
-            this.logger.error('Error reading passive target:', err);
-            return null;
-        }
-    }
-
-    async _writeCommand(command) {
-        const frame = Buffer.from([
-            _PREAMBLE,
-            _STARTCODE1,
-            _STARTCODE2,
-            command.length + 1,
-            -(command.length + 1),
-            _HOSTTOPN532,
-            ...command
-        ]);
-
-        // Add checksum
-        let sum = command.reduce((a, b) => a + b, _HOSTTOPN532);
-        frame.push(-sum & 0xFF);
-        frame.push(_POSTAMBLE);
-
-        await this._write(frame);
+class PN532_I2C extends PN532 {
+    constructor(i2c_bus, i2cAddress = _I2C_ADDRESS, debug = false) {
+        super(debug);
         
-        // Wait for ACK
-        const ack = await this._read(6);
-        if (!ack || ack.length !== 6) {
-            throw new Error('No ACK received');
+        if (typeof i2c_bus === 'undefined') {
+            i2c_bus = 1;
+        }
+        
+        this._address = i2cAddress;
+        try {
+            this._wire = i2c.openSync(i2c_bus);
+        } catch (err) {
+            throw new Error(`i2c_bus i2c-${i2c_bus} not exist!`);
+        }
+        
+        this.debug = debug;
+    }
+
+    _wakeup() {
+        // Send any special commands/data to wake up PN532
+        this.low_power = false;
+        this.SAM_configuration(); // Put the PN532 back in normal mode
+    }
+
+    _wait_ready(timeout = 1) {
+        // Poll PN532 if status byte is ready, up to `timeout` seconds
+        const status = Buffer.alloc(1);
+        const timestamp = new Date().getTime();
+        
+        while ((new Date().getTime() - timestamp) < timeout * 2000) {
+            try {
+                this._wire.i2cReadSync(this._address, 1, status);
+                if (status[0] === 0x01) {
+                    return true; // No longer busy
+                }
+            } catch (err) {
+                continue;
+            }
+            this.delay_ms(10); // Wait before asking again
+        }
+        return false;
+    }
+
+    _read_data(count) {
+        // Read a specified count of bytes from the PN532
+        const frame = Buffer.alloc(count + 1);
+        
+        // Read status byte
+        this._wire.i2cReadSync(this._address, 1, frame);
+        if (frame[0] !== 0x01) {
+            throw new Error('busy!');
         }
 
-        // Read response
-        const response = await this._read(command.length + 7);
-        if (!response) return null;
-
-        // Return data without headers
-        return response.slice(6, -2);
+        this._wire.i2cReadSync(this._address, count + 1, frame);
+        
+        return frame.slice(1); // Don't return the status byte
     }
 
-    async _write(data) {
-        return new Promise((resolve, reject) => {
-            this.port.write(data, (err) => {
-                if (err) reject(err);
-                else resolve();
-            });
-        });
-    }
-
-    async _read(length) {
-        return new Promise((resolve) => {
-            this.port.once('data', (data) => {
-                resolve(data);
-            });
-            // Add timeout
-            setTimeout(() => resolve(null), 1000);
-        });
+    _write_data(framebytes) {
+        // Write data to the PN532
+        this._wire.i2cWriteSync(this._address, framebytes.length, framebytes);
     }
 
     close() {
-        if (this.port) {
-            this.port.close();
-            this.port = null;
+        if (this._wire) {
+            this._wire.closeSync();
+            this._wire = null;
         }
     }
 }
 
 class NFCDaemon {
-    constructor(portName = '/dev/ttyS0', onCardDetected, onCardRemoved, logger = console, interval = 500, debounceThreshold = 5) {
+    constructor(i2cBusNumber = 1, onCardDetected, onCardRemoved, logger = console, interval = 500, debounceThreshold = 5) {
         this.interval = interval;
         this.logger = logger;
         
@@ -199,18 +91,39 @@ class NFCDaemon {
         this.onCardRemoved = onCardRemoved;
         this.debounceThreshold = debounceThreshold;
         
-        this.reader = new PN532_UART(portName, logger);
+        this.reader = new PN532_I2C(i2cBusNumber, _I2C_ADDRESS, false);
         this.watcher = this.watcher.bind(this);
     }
 
     async start() {
         try {
             this.logger.info('NFC Daemon: Initializing...');
-            const initialized = await this.reader.init();
-            if (!initialized) {
-                this.logger.error('Failed to initialize NFC reader');
+            
+            // Wake up and initialize
+            this.reader._wakeup();
+            
+            // Get firmware version
+            const version = this.reader.firmware_version();
+            if (!version) {
+                this.logger.error("Failed to get PN532 firmware version");
                 return false;
             }
+
+            // Format version info properly
+            const versionInfo = {
+                ic: version[0],
+                ver: version[1],
+                rev: version[2],
+                support: version[3]
+            };
+            this.logger.info('Found PN532 with firmware version:', 
+                `IC: 0x${versionInfo.ic.toString(16)}, ` +
+                `Ver: 0x${versionInfo.ver.toString(16)}, ` +
+                `Rev: 0x${versionInfo.rev.toString(16)}, ` +
+                `Support: 0x${versionInfo.support.toString(16)}`
+            );
+            
+            this.reader.SAM_configuration();
             
             this.logger.info('NFC Daemon:', `going to poll the reader every ${this.interval}ms`);
             this.intervalHandle = setInterval(this.watcher, this.interval);
@@ -233,7 +146,8 @@ class NFCDaemon {
 
     async watcher() {
         try {
-            const uid = await this.reader.readPassiveTargetID();
+            // Try to read card UID
+            const uid = this.reader.read_passive_target();
             
             if (this.isFirstRead) {
                 this.isFirstRead = false;
@@ -264,7 +178,7 @@ class NFCDaemon {
             this.logger.error('Error in watcher:', err.message);
             // Try to reinitialize on error
             try {
-                await this.reader.init();
+                this.reader._wakeup();
             } catch (e) {
                 this.logger.error('Error reinitializing:', e);
             }
