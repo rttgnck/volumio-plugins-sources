@@ -52,9 +52,9 @@ NFCController.prototype.onStart = function() {
     });
 
     // Configuration default values
-    if (!self.config.get('pollingRate')) {
-        self.config.set('pollingRate', 500);
-    }
+	if (!self.config.get('pollingRate')) {
+		self.config.set('pollingRate', 1000); // Changed from 500 to 1000
+	}
 
     if (!self.config.get('debounceThreshold')) {
         self.config.set('debounceThreshold', 1);
