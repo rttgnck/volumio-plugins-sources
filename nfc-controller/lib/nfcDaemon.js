@@ -88,20 +88,23 @@ class PN532_I2C extends PN532 {
         this._address = i2cAddress;
         this._retries = 3;  // Number of retries for I2C operations
         this._retryDelay = 50;  // Delay between retries in ms
+        this._i2cBusNumber = i2c_bus;
         
         try {
-            // Open I2C bus in synchronized mode with higher timeout
-            this._wire = i2c.openSync(i2c_bus);
-            // Set I2C bus speed to 100kHz instead of default 400kHz
-            // This can help with reliability and CPU usage
-            execSync(`i2cset -y ${i2c_bus} 0x00 0x00 i`);
+            // Open I2C bus in synchronized mode
+            this._wire = i2c.openSync(this._i2cBusNumber);
+            
+            // Don't try to set I2C speed here - it should be configured in system settings
+            this.debug = debug;
+            this._lastReadTime = 0;
+            this._minReadInterval = 20; // Minimum time between reads in ms
         } catch (err) {
-            throw new Error(`i2c_bus i2c-${i2c_bus} not exist!`);
+            // Provide more detailed error information
+            const errorMsg = `Failed to open I2C bus ${this._i2cBusNumber}. ` +
+                           `Please ensure I2C is enabled in raspi-config and the user has permissions.\n` +
+                           `Original error: ${err.message}`;
+            throw new Error(errorMsg);
         }
-        
-        this.debug = debug;
-        this._lastReadTime = 0;
-        this._minReadInterval = 20; // Minimum time between reads in ms
     }
 
     _wait_ready(timeout = 1) {

@@ -230,61 +230,58 @@ NFCController.prototype.registerWatchDaemon = async function() {
 
     self.logger.info(`${MY_LOG_NAME} Registering a thread to poll the NFC reader`);
 
-    // Use i2c bus 1 by default
-    const i2cBusNumber = 1;
-    const pollingRate = self.config.get('pollingRate');
-    const debounceThreshold = self.config.get('debounceThreshold');
-
-    self.logger.info(MY_LOG_NAME, 'i2c bus number', i2cBusNumber);
-    self.logger.info(MY_LOG_NAME, 'polling rate', pollingRate);
-    self.logger.info(MY_LOG_NAME, 'debounce threshold', debounceThreshold);
-
-    // Get CPU info and set affinity
+    // Check if I2C is enabled
     try {
-        // Get number of CPU cores
-        const cpuInfo = execSync('nproc').toString().trim();
-        const numCPUs = parseInt(cpuInfo);
-        
-        if (numCPUs > 1) {
-            // Get the current process ID
-            const pid = process.pid;
-            
-            // Check which CPU core Volumio is using most
-            const psOutput = execSync(`ps -eo pid,cmd,%cpu | grep "node /volumio" | grep -v grep`).toString();
-            const volumioCPU = await self.getVolumioCPUCore();
-            
-            // Select a different core than Volumio
-            let selectedCore = (volumioCPU + 1) % numCPUs;
-            
-            // Set CPU affinity for our process
-            execSync(`taskset -p ${(1 << selectedCore).toString(16)} ${pid}`);
-            
-            self.logger.info(`${MY_LOG_NAME}: Set NFC process to run on CPU core ${selectedCore}`);
+        const i2cDetectOutput = execSync('i2cdetect -l').toString();
+        if (!i2cDetectOutput.includes('i2c-1')) {
+            throw new Error('I2C bus 1 not found. Please enable I2C in raspi-config');
         }
-    } catch (err) {
-        self.logger.error(`${MY_LOG_NAME}: Error setting CPU affinity:`, err);
-        // Continue even if we couldn't set affinity
-    }
 
-    // Initialize NFC daemon with optimized settings
-    self.nfcDaemon = new NFCDaemon(
-        i2cBusNumber,
-        self.handleTokenDetected.bind(self),
-        self.handleTokenRemoved.bind(self),
-        self.logger,
-        pollingRate,
-        debounceThreshold
-    );
-
-    try {
-        const started = await self.nfcDaemon.start();
-        if (!started) {
-            self.logger.error(`${MY_LOG_NAME}: Failed to start NFC daemon`);
-            return libQ.reject(new Error('Failed to start NFC daemon'));
+        // Check for I2C permissions
+        try {
+            fs.accessSync('/dev/i2c-1', fs.constants.R_OK | fs.constants.W_OK);
+        } catch (err) {
+            throw new Error('No permission to access I2C bus. Please ensure user is in i2c group');
         }
-        return libQ.resolve();
+
+        // Use i2c bus 1 by default
+        const i2cBusNumber = 1;
+        const pollingRate = self.config.get('pollingRate');
+        const debounceThreshold = self.config.get('debounceThreshold');
+
+        self.logger.info(MY_LOG_NAME, 'i2c bus number', i2cBusNumber);
+        self.logger.info(MY_LOG_NAME, 'polling rate', pollingRate);
+        self.logger.info(MY_LOG_NAME, 'debounce threshold', debounceThreshold);
+
+        // Initialize NFC daemon
+        self.nfcDaemon = new NFCDaemon(
+            i2cBusNumber,
+            self.handleTokenDetected.bind(self),
+            self.handleTokenRemoved.bind(self),
+            self.logger,
+            pollingRate,
+            debounceThreshold
+        );
+
+        try {
+            const started = await self.nfcDaemon.start();
+            if (!started) {
+                throw new Error('Failed to start NFC daemon');
+            }
+            return libQ.resolve();
+        } catch (err) {
+            self.logger.error(`${MY_LOG_NAME}: Error starting NFC daemon:`, err);
+            return libQ.reject(err);
+        }
+
     } catch (err) {
-        self.logger.error(`${MY_LOG_NAME}: Error starting NFC daemon:`, err);
+        self.logger.error(`${MY_LOG_NAME}: ${err.message}`);
+        // Add helpful instructions for the user
+        self.commandRouter.pushToastMessage('error', MY_LOG_NAME, 
+            'I2C initialization failed. Please run these commands:\n' +
+            'sudo raspi-config # Enable I2C in Interfacing Options\n' +
+            'sudo usermod -a -G i2c volumio\n' +
+            'sudo reboot');
         return libQ.reject(err);
     }
 };
