@@ -239,6 +239,34 @@ NFCController.prototype.registerWatchDaemon = async function() {
     self.logger.info(MY_LOG_NAME, 'polling rate', pollingRate);
     self.logger.info(MY_LOG_NAME, 'debounce threshold', debounceThreshold);
 
+    // Get CPU info and set affinity
+    try {
+        // Get number of CPU cores
+        const cpuInfo = execSync('nproc').toString().trim();
+        const numCPUs = parseInt(cpuInfo);
+        
+        if (numCPUs > 1) {
+            // Get the current process ID
+            const pid = process.pid;
+            
+            // Check which CPU core Volumio is using most
+            const psOutput = execSync(`ps -eo pid,cmd,%cpu | grep "node /volumio" | grep -v grep`).toString();
+            const volumioCPU = await self.getVolumioCPUCore();
+            
+            // Select a different core than Volumio
+            let selectedCore = (volumioCPU + 1) % numCPUs;
+            
+            // Set CPU affinity for our process
+            execSync(`taskset -p ${(1 << selectedCore).toString(16)} ${pid}`);
+            
+            self.logger.info(`${MY_LOG_NAME}: Set NFC process to run on CPU core ${selectedCore}`);
+        }
+    } catch (err) {
+        self.logger.error(`${MY_LOG_NAME}: Error setting CPU affinity:`, err);
+        // Continue even if we couldn't set affinity
+    }
+
+    // Initialize NFC daemon with optimized settings
     self.nfcDaemon = new NFCDaemon(
         i2cBusNumber,
         self.handleTokenDetected.bind(self),
@@ -259,6 +287,31 @@ NFCController.prototype.registerWatchDaemon = async function() {
         self.logger.error(`${MY_LOG_NAME}: Error starting NFC daemon:`, err);
         return libQ.reject(err);
     }
+};
+
+// Helper method to get Volumio's CPU core
+NFCController.prototype.getVolumioCPUCore = async function() {
+    const self = this;
+    
+    return new Promise((resolve) => {
+        exec('pidstat -p $(pgrep -f "node /volumio") -u 1 1', (error, stdout) => {
+            try {
+                // Parse pidstat output to determine which CPU core Volumio is using most
+                const lines = stdout.split('\n');
+                const cpuLine = lines.find(line => line.includes('node'));
+                if (cpuLine) {
+                    const parts = cpuLine.trim().split(/\s+/);
+                    const cpu = parseInt(parts[parts.length - 1]); // Last column is CPU number
+                    resolve(cpu || 0);
+                } else {
+                    resolve(0);
+                }
+            } catch (err) {
+                self.logger.error('Error determining Volumio CPU core:', err);
+                resolve(0);
+            }
+        });
+    });
 };
 
 NFCController.prototype.unRegisterWatchDaemon = function() {

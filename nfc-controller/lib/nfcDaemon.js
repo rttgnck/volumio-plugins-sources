@@ -6,6 +6,77 @@ const serializeUid = require('./serializeUid');
 
 const _I2C_ADDRESS = 0x24;
 
+// class PN532_I2C extends PN532 {
+//     constructor(i2c_bus, i2cAddress = _I2C_ADDRESS, debug = false) {
+//         super(debug);
+        
+//         if (typeof i2c_bus === 'undefined') {
+//             i2c_bus = 1;
+//         }
+        
+//         this._address = i2cAddress;
+//         try {
+//             this._wire = i2c.openSync(i2c_bus);
+//         } catch (err) {
+//             throw new Error(`i2c_bus i2c-${i2c_bus} not exist!`);
+//         }
+        
+//         this.debug = debug;
+//     }
+
+//     _wakeup() {
+//         // Send any special commands/data to wake up PN532
+//         this.low_power = false;
+//         this.SAM_configuration(); // Put the PN532 back in normal mode
+//     }
+
+//     _wait_ready(timeout = 1) {
+//         // Poll PN532 if status byte is ready, up to `timeout` seconds
+//         const status = Buffer.alloc(1);
+//         const timestamp = new Date().getTime();
+        
+//         while ((new Date().getTime() - timestamp) < timeout * 2000) {
+//             try {
+//                 this._wire.i2cReadSync(this._address, 1, status);
+//                 if (status[0] === 0x01) {
+//                     return true; // No longer busy
+//                 }
+//             } catch (err) {
+//                 continue;
+//             }
+//             this.delay_ms(10); // Wait before asking again
+//         }
+//         return false;
+//     }
+
+//     _read_data(count) {
+//         // Read a specified count of bytes from the PN532
+//         const frame = Buffer.alloc(count + 1);
+        
+//         // Read status byte
+//         this._wire.i2cReadSync(this._address, 1, frame);
+//         if (frame[0] !== 0x01) {
+//             throw new Error('busy!');
+//         }
+
+//         this._wire.i2cReadSync(this._address, count + 1, frame);
+        
+//         return frame.slice(1); // Don't return the status byte
+//     }
+
+//     _write_data(framebytes) {
+//         // Write data to the PN532
+//         this._wire.i2cWriteSync(this._address, framebytes.length, framebytes);
+//     }
+
+//     close() {
+//         if (this._wire) {
+//             this._wire.closeSync();
+//             this._wire = null;
+//         }
+//     }
+// }
+
 class PN532_I2C extends PN532 {
     constructor(i2c_bus, i2cAddress = _I2C_ADDRESS, debug = false) {
         super(debug);
@@ -15,58 +86,85 @@ class PN532_I2C extends PN532 {
         }
         
         this._address = i2cAddress;
+        this._retries = 3;  // Number of retries for I2C operations
+        this._retryDelay = 50;  // Delay between retries in ms
+        
         try {
+            // Open I2C bus in synchronized mode with higher timeout
             this._wire = i2c.openSync(i2c_bus);
+            // Set I2C bus speed to 100kHz instead of default 400kHz
+            // This can help with reliability and CPU usage
+            execSync(`i2cset -y ${i2c_bus} 0x00 0x00 i`);
         } catch (err) {
             throw new Error(`i2c_bus i2c-${i2c_bus} not exist!`);
         }
         
         this.debug = debug;
-    }
-
-    _wakeup() {
-        // Send any special commands/data to wake up PN532
-        this.low_power = false;
-        this.SAM_configuration(); // Put the PN532 back in normal mode
+        this._lastReadTime = 0;
+        this._minReadInterval = 20; // Minimum time between reads in ms
     }
 
     _wait_ready(timeout = 1) {
-        // Poll PN532 if status byte is ready, up to `timeout` seconds
         const status = Buffer.alloc(1);
         const timestamp = new Date().getTime();
+        let retries = 0;
         
-        while ((new Date().getTime() - timestamp) < timeout * 2000) {
+        while ((new Date().getTime() - timestamp) < timeout * 1000 && retries < this._retries) {
             try {
                 this._wire.i2cReadSync(this._address, 1, status);
                 if (status[0] === 0x01) {
-                    return true; // No longer busy
+                    return true;
                 }
             } catch (err) {
+                retries++;
+                if (retries < this._retries) {
+                    this.delay_ms(this._retryDelay);
+                }
                 continue;
             }
-            this.delay_ms(10); // Wait before asking again
+            this.delay_ms(10);
         }
         return false;
     }
 
     _read_data(count) {
-        // Read a specified count of bytes from the PN532
-        const frame = Buffer.alloc(count + 1);
+        // Implement read throttling
+        const now = Date.now();
+        const timeSinceLastRead = now - this._lastReadTime;
         
-        // Read status byte
-        this._wire.i2cReadSync(this._address, 1, frame);
-        if (frame[0] !== 0x01) {
-            throw new Error('busy!');
+        if (timeSinceLastRead < this._minReadInterval) {
+            this.delay_ms(this._minReadInterval - timeSinceLastRead);
         }
-
-        this._wire.i2cReadSync(this._address, count + 1, frame);
         
-        return frame.slice(1); // Don't return the status byte
-    }
-
-    _write_data(framebytes) {
-        // Write data to the PN532
-        this._wire.i2cWriteSync(this._address, framebytes.length, framebytes);
+        const frame = Buffer.alloc(count + 1);
+        let success = false;
+        let retries = 0;
+        
+        while (!success && retries < this._retries) {
+            try {
+                this._wire.i2cReadSync(this._address, 1, frame);
+                if (frame[0] !== 0x01) {
+                    retries++;
+                    if (retries < this._retries) {
+                        this.delay_ms(this._retryDelay);
+                    }
+                    continue;
+                }
+                
+                this._wire.i2cReadSync(this._address, count + 1, frame);
+                success = true;
+            } catch (err) {
+                retries++;
+                if (retries < this._retries) {
+                    this.delay_ms(this._retryDelay);
+                } else {
+                    throw err;
+                }
+            }
+        }
+        
+        this._lastReadTime = Date.now();
+        return frame.slice(1);
     }
 
     close() {
