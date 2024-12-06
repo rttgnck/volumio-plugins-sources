@@ -70,6 +70,11 @@ NFCController.prototype.onStart = function() {
             self.logger.error("Failed to start NFCController:", err);
             defer.reject(err);
         });
+    
+        self.commandRouter.registerHandler('user_interface/nfc_controller', 'assignPlaylist', self.assignPlaylist.bind(self));
+        self.commandRouter.registerHandler('user_interface/nfc_controller', 'savePlaybackOptions', self.savePlaybackOptions.bind(self));
+        self.commandRouter.registerHandler('user_interface/nfc_controller', 'saveTechConfiguration', self.saveTechConfiguration.bind(self));
+    
 
     return defer.promise;
 };
@@ -77,6 +82,8 @@ NFCController.prototype.onStart = function() {
 NFCController.prototype.onStop = function() {
     const self = this;
     const defer = libQ.defer();
+
+    self.commandRouter.unregisterHandler('user_interface/nfc_controller');
 
     self.unRegisterWatchDaemon()
         .then(function() {
@@ -277,6 +284,7 @@ NFCController.prototype.unRegisterWatchDaemon = function() {
 NFCController.prototype.assignPlaylist = function({ playlist }) {
     const self = this;
     const effectivePlaylist = playlist.value || self.currentPlaylist;
+    self.logger.info('assignPlaylist called with data:', JSON.stringify(playlist));
 
     if (!self.currentTokenUid) {
         self.commandRouter.pushToastMessage('error', MY_LOG_NAME, "No NFC token detected");
@@ -297,6 +305,7 @@ NFCController.prototype.assignPlaylist = function({ playlist }) {
             return true;
         }
     } catch (err) {
+        self.logger.error('Error in assignPlaylist:', error);
         self.commandRouter.pushToastMessage('error', MY_LOG_NAME, err.message);
         self.logger.info(`${MY_LOG_NAME}: could not assign token uid`, self.currentTokenUid, err);
     }
