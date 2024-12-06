@@ -285,6 +285,7 @@ NFCController.prototype.assignPlaylist = function({ playlist }) {
     const self = this;
     const effectivePlaylist = playlist.value || self.currentPlaylist;
     self.logger.info('assignPlaylist called with data:', JSON.stringify(playlist));
+    self.commandRouter.pushToastMessage('success', MY_LOG_NAME, `Assigning playlist ${effectivePlaylist}`);
 
     if (!self.currentTokenUid) {
         self.commandRouter.pushToastMessage('error', MY_LOG_NAME, "No NFC token detected");
