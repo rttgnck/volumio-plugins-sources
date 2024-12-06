@@ -50,7 +50,7 @@ NFCController.prototype.onStart = function() {
     socket.on('callMethod', function(data) {
         self.logger.info('callMethod received:', JSON.stringify(data));
         
-        if (data.endpoint === 'user_interface/nfc_controller') {
+        if (data.endpoint === 'user_interface/nfc-controller') {
             switch (data.method) {
                 case 'assignPlaylist':
                     self.logger.info('Calling assignPlaylist with:', JSON.stringify(data.data));
@@ -103,7 +103,7 @@ NFCController.prototype.onStop = function() {
     const self = this;
     const defer = libQ.defer();
 
-    self.commandRouter.unregisterHandler('user_interface/nfc_controller');
+    self.commandRouter.unregisterHandler('user_interface/nfc-controller');
 
     self.unRegisterWatchDaemon()
         .then(function() {
@@ -167,7 +167,7 @@ NFCController.prototype.getUIConfig = function() {
                             "type": "emit",
                             "message": "callMethod",
                             "data": {
-                                "endpoint": "user_interface/nfc_controller",
+                                "endpoint": "user_interface/nfc-controller",
                                 "method": "unassignToken",
                                 "data": assignment.uid
                             }
