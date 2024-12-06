@@ -10,7 +10,7 @@
       "icon": "fa-plug",
       "onSave": {
         "type": "controller",
-        "endpoint": "user_interface/nfc-controller",
+        "endpoint": "user_interface/nfc_controller",
         "method": "assignPlaylist"
       },
       "saveButton": {
@@ -52,7 +52,7 @@
       "icon": "fa-plug",
       "onSave": {
         "type": "controller",
-        "endpoint": "user_interface/nfc-controller",
+        "endpoint": "user_interface/nfc_controller",
         "method": "savePlaybackOptions"
       },
       "saveButton": {
@@ -79,7 +79,7 @@
       "icon": "fa-microchip",
       "onSave": {
         "type": "controller",
-        "endpoint": "user_interface/nfc-controller",
+        "endpoint": "user_interface/nfc_controller",
         "method": "saveTechConfiguration"
       },
       "saveButton": {

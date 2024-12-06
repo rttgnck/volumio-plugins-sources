@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "Installing nfc-controller Dependencies"
+echo "Installing NFC Controller Dependencies"
 sudo apt-get update
 # Install the required packages via apt-get
 sudo apt-get -y install
