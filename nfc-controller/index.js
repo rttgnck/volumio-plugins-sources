@@ -25,6 +25,7 @@ function NFCController(context) {
     self.tokenManager = getTokenManager(self.logger);
 }
 
+
 NFCController.prototype.onVolumioStart = function() {
     const self = this;
     
@@ -44,6 +45,30 @@ NFCController.prototype.getConfigurationFiles = function() {
 NFCController.prototype.onStart = function() {
     const self = this;
     const defer = libQ.defer();
+
+    // Add direct socket event listener for callMethod
+    socket.on('callMethod', function(data) {
+        self.logger.info('callMethod received:', JSON.stringify(data));
+        
+        if (data.endpoint === 'user_interface/nfc_controller') {
+            switch (data.method) {
+                case 'assignPlaylist':
+                    self.logger.info('Calling assignPlaylist with:', JSON.stringify(data.data));
+                    self.assignPlaylist(data.data);
+                    break;
+                case 'savePlaybackOptions':
+                    self.logger.info('Calling savePlaybackOptions with:', JSON.stringify(data.data));
+                    self.savePlaybackOptions(data.data);
+                    break;
+                case 'saveTechConfiguration':
+                    self.logger.info('Calling saveTechConfiguration with:', JSON.stringify(data.data));
+                    self.saveTechConfiguration(data.data);
+                    break;
+                default:
+                    self.logger.warn('Unknown method called:', data.method);
+            }
+        }
+    });
 
     // Register callback to sniff which playlist is currently playing
     socket.on('playingPlaylist', function(playlist) {
@@ -71,11 +96,6 @@ NFCController.prototype.onStart = function() {
             defer.reject(err);
         });
     
-        self.commandRouter.registerHandler('user_interface/nfc_controller', 'assignPlaylist', self.assignPlaylist.bind(self));
-        self.commandRouter.registerHandler('user_interface/nfc_controller', 'savePlaybackOptions', self.savePlaybackOptions.bind(self));
-        self.commandRouter.registerHandler('user_interface/nfc_controller', 'saveTechConfiguration', self.saveTechConfiguration.bind(self));
-    
-
     return defer.promise;
 };
 
