@@ -243,12 +243,29 @@ NFCController.prototype.handleTokenRemoved = function(uid) {
     if (self.config.get('stopWhenRemoved')) {
         socket.emit('getState', '');
         socket.once('pushState', (state) => {
-            if (state.status == 'play' && state.service == 'webradio') {
-                socket.emit('stop');
+            self.logger.info('Current state:', JSON.stringify(state));
+            
+            if (state.status === 'play') {
+                self.logger.info('Playback is active, service:', state.service);
+                
+                if (state.service === 'webradio') {
+                    self.logger.info('Stopping webradio');
+                    socket.emit('stop');
+                } else {
+                    self.logger.info('Pausing other media');
+                    socket.emit('pause');
+                }
             } else {
-                socket.emit('pause');
+                self.logger.info('Playback is not active, status:', state.status);
             }
         });
+        // socket.once('pushState', (state) => {
+        //     if (state.status == 'play' && state.service == 'webradio') {
+        //         socket.emit('stop');
+        //     } else {
+        //         socket.emit('pause');
+        //     }
+        // });
     }
 };
 
