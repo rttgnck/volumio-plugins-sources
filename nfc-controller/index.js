@@ -138,6 +138,9 @@ NFCController.prototype.getUIConfig = function() {
             const techSection = uiconf.sections[3];
             const playlistSelectBox = uiconf.sections[0].content[0];
 
+            const playbackSection = uiconf.sections[2];
+            playbackSection.content[0].value = self.config.get('stopWhenRemoved');
+
             // Technical Reader settings
             techSection.content[0].value.value = self.config.get('spi');
             techSection.content[1].value = self.config.get('pollingRate');
@@ -205,7 +208,7 @@ NFCController.prototype.savePlaybackOptions = function(data) {
 
     self.logger.info(MY_LOG_NAME, 'Saving config', JSON.stringify(data));
 
-    self.config.set('stopWhenRemoved', data.stopWhenRemoved.value);
+    self.config.set('stopWhenRemoved', data.stopWhenRemoved);
 
     self.commandRouter.pushToastMessage('success', MY_LOG_NAME, "Configuration saved");
 };
