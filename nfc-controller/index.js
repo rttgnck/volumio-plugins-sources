@@ -206,11 +206,25 @@ NFCController.prototype.saveTechConfiguration = function(data) {
 NFCController.prototype.savePlaybackOptions = function(data) {
     const self = this;
 
-    self.logger.info(MY_LOG_NAME, 'Saving config', JSON.stringify(data));
+    self.logger.info(MY_LOG_NAME, 'Saving playback options:', JSON.stringify(data));
+    
+    // Log the previous value
+    self.logger.info('Previous stopWhenRemoved value:', self.config.get('stopWhenRemoved'));
+    
+    // Make sure we're saving a boolean value
+    const stopWhenRemoved = data.stopWhenRemoved === true || data.stopWhenRemoved === 'true';
+    
+    // Save the new value
+    self.config.set('stopWhenRemoved', stopWhenRemoved);
+    
+    // Verify it was saved
+    self.logger.info('New stopWhenRemoved value:', self.config.get('stopWhenRemoved'));
 
-    self.config.set('stopWhenRemoved', data.stopWhenRemoved);
+    // Force a config save
+    self.config.save();
 
     self.commandRouter.pushToastMessage('success', MY_LOG_NAME, "Configuration saved");
+
 };
 
 NFCController.prototype.handleTokenDetected = function(uid) {
