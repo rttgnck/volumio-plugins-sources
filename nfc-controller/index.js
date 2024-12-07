@@ -205,7 +205,7 @@ NFCController.prototype.savePlaybackOptions = function(data) {
 
     self.logger.info(MY_LOG_NAME, 'Saving config', JSON.stringify(data));
 
-    self.config.set('stopWhenRemoved', data.stopWhenRemoved);
+    self.config.set('stopWhenRemoved', data.stopWhenRemoved.value);
 
     self.commandRouter.pushToastMessage('success', MY_LOG_NAME, "Configuration saved");
 };
