@@ -26,7 +26,7 @@
           "type": "number",
           "element": "input",
           "label": "WebSocket Port",
-          "value": 3000
+          "value": 4000
         },
         {
           "id": "debug",

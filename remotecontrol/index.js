@@ -28,7 +28,7 @@ RemoteControlPlugin.prototype.onStart = function() {
   const self = this;
   
   // Initialize WebSocket server
-  this.wsServer = new WebSocket.Server({ port: 3000 });
+  this.wsServer = new WebSocket.Server({ port: 4000 });
   
   this.wsServer.on('connection', function(ws) {
     self.logger.info('New remote control client connected');
