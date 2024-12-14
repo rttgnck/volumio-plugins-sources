@@ -28,7 +28,7 @@ RemoteControlPlugin.prototype.onStart = function() {
   const self = this;
   
   // Initialize WebSocket server
-  this.wsServer = new WebSocket.Server({ port: 4000 });
+  this.wsServer = new WebSocket.Server({ port: 3000 });
   
   this.wsServer.on('connection', function(ws) {
     self.logger.info('New remote control client connected');
@@ -68,19 +68,21 @@ RemoteControlPlugin.prototype.onStart = function() {
     });
   });
   
-  // Subscribe to state updates
-  this.commandRouter.subscribeToPushNotification('playlist', (notifyData) => {
-    this.handlePlaylistUpdate(notifyData);
+  // Subscribe to state updates using the correct method
+  this.commandRouter.volumioGetState().then((state) => {
+    this.state = state;
   });
-  
-  return libQ.resolve();
-};
 
-RemoteControlPlugin.prototype.handlePlaylistUpdate = function(data) {
-  // Broadcast current state to all connected clients
-  for (const client of this.connectedClients.values()) {
-    this.sendCurrentState(client);
-  }
+  // Register callback for state changes
+  this.commandRouter.addCallback('volumioStateChanged', (state) => {
+    this.state = state;
+    // Broadcast to all connected clients
+    for (const client of this.connectedClients.values()) {
+      this.sendCurrentState(client);
+    }
+  });
+
+  return libQ.resolve();
 };
 
 RemoteControlPlugin.prototype.sendCurrentState = function(ws) {
@@ -121,10 +123,10 @@ RemoteControlPlugin.prototype.handleClientCommand = function(command) {
       this.commandRouter.volumioPrevious();
       break;
     case 'volume_up':
-      this.commandRouter.volumioVolumioVolume('+');
+      this.commandRouter.volumioVolume('+');
       break;
     case 'volume_down':
-      this.commandRouter.volumioVolumioVolume('-');
+      this.commandRouter.volumioVolume('-');
       break;
     default:
       this.logger.warn('RemoteControl: Unknown command received: ' + command);
