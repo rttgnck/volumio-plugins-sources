@@ -33,6 +33,26 @@ peppyspectrum.prototype.onVolumioStart = function () {
     var configFile = self.commandRouter.pluginManager.getConfigurationFile(self.context, 'config.json');
     self.config = new (require('v-conf'))();
     self.config.loadFile(configFile);
+    
+    if (!self.config.has('circle_line_width')) {
+        self.config.set('circle_line_width', 2);
+    }
+    if (!self.config.has('circle_glow_intensity')) {
+        self.config.set('circle_glow_intensity', 40);
+    }
+    if (!self.config.has('circle_fill_opacity')) {
+        self.config.set('circle_fill_opacity', 40);
+    }
+    if (!self.config.has('circle_interpolation_points')) {
+        self.config.set('circle_interpolation_points', 30);
+    }
+    if (!self.config.has('circle_vignette_strength')) {
+        self.config.set('circle_vignette_strength', 255);
+    }
+    if (!self.config.has('circle_render_quality')) {
+        self.config.set('circle_render_quality', '4');
+    }
+    
     return libQ.resolve();
 };
 
@@ -281,13 +301,34 @@ peppyspectrum.prototype.getUIConfig = function () {
                     max: 3500
                 }
             ];
-
-
+            
             var valuespectrum;
             valuespectrum = self.config.get('spectrum');
             self.configManager.setUIConfigParam(uiconf, 'sections[1].content[0].value.value', valuespectrum);
             self.configManager.setUIConfigParam(uiconf, 'sections[1].content[0].value.label', valuespectrum);
 
+
+			// Initialize circular spectrum section
+            uiconf.sections[2].content[0].value = self.config.get('circle_line_width', 2);
+            uiconf.sections[2].content[1].value = self.config.get('circle_glow_intensity', 40);
+            uiconf.sections[2].content[2].value = self.config.get('circle_fill_opacity', 40);
+            uiconf.sections[2].content[3].value = self.config.get('circle_interpolation_points', 30);
+            uiconf.sections[2].content[4].value = self.config.get('circle_vignette_strength', 255);
+
+            // Initialize render quality select
+            var quality = self.config.get('circle_render_quality', '4');
+            self.configManager.setUIConfigParam(uiconf, 'sections[2].content[5].value.value', quality);
+            self.configManager.setUIConfigParam(uiconf, 'sections[2].content[5].value.label', 
+                quality === '8' ? 'Low (Fastest)' :
+                quality === '4' ? 'Normal' :
+                quality === '2' ? 'High (Slower)' :
+                'Ultra (Slowest)'
+            );
+
+            // Make sure section is visible
+            uiconf.sections[2].hidden = false;
+
+            
             try {
                 if ((valuescreen == '320x240') || (valuescreen == '480x320') || (valuescreen == '800x480') || (valuescreen == '1280x400')) {
                     spectrumfolder = '/data/plugins/user_interface/peppyspectrum/PeppySpectrum/'
@@ -323,15 +364,15 @@ peppyspectrum.prototype.getUIConfig = function () {
                             label: litems[a]
                         });
                     }
-                    uiconf.sections[2].content[0].value = self.config.get('debuglog');
-                    uiconf.sections[2].hidden = true;
+                    uiconf.sections[3].content[0].value = self.config.get('debuglog');
+                    uiconf.sections[3].hidden = false;
 
 
 
-                    //-----------section 4---------
+                    //-----------section 5---------
                     var value = self.config.get('zipfile');
-                    self.configManager.setUIConfigParam(uiconf, 'sections[3].content[0].value.value', value);
-                    self.configManager.setUIConfigParam(uiconf, 'sections[3].content[0].value.label', value);
+                    self.configManager.setUIConfigParam(uiconf, 'sections[4].content[0].value.value', value);
+                    self.configManager.setUIConfigParam(uiconf, 'sections[4].content[0].value.label', value);
 
 
                     try {
@@ -342,7 +383,7 @@ peppyspectrum.prototype.getUIConfig = function () {
                             var preparedresult = result[i].split(".")[0];
                             self.logger.info(logPrefix + preparedresult)
 
-                            self.configManager.pushUIConfigParam(uiconf, 'sections[3].content[0].options', {
+                            self.configManager.pushUIConfigParam(uiconf, 'sections[4].content[0].options', {
                                 value: preparedresult,
                                 label: i + 1 + ' ' + preparedresult
                             });
@@ -558,6 +599,161 @@ peppyspectrum.prototype.savepeppy2 = function (data) {
 
 };
 
+peppyspectrum.prototype.savecircular = function (data) {
+    const self = this;
+    const defer = libQ.defer();
+    
+    // Save circular spectrum settings to plugin config
+    self.config.set('circle_line_width', data['circle_line_width']);
+    self.config.set('circle_glow_intensity', data['circle_glow_intensity']);
+    self.config.set('circle_fill_opacity', data['circle_fill_opacity']);
+    self.config.set('circle_interpolation_points', data['circle_interpolation_points']);
+    self.config.set('circle_vignette_strength', data['circle_vignette_strength']);
+    self.config.set('circle_render_quality', data['circle_render_quality'].value);
+
+    // Get current spectrum section name
+    const screensize = self.config.get('screensize');
+    const spectrum = self.config.get('spectrum');
+    let spectrumSection = spectrum;
+    if (spectrum === 'Random' || !spectrum) {
+        spectrumSection = 'circular-spectrum-1'; // Default to first circular spectrum if random
+    }
+
+    // Prepare settings object for spectrum.txt
+    const settings = {
+        'circle.line_width': data['circle_line_width'].toString(),
+        'circle.glow_intensity': data['circle_glow_intensity'].toString(),
+        'circle.fill_opacity': data['circle_fill_opacity'].toString(),
+        'circle.interpolation_points': data['circle_interpolation_points'].toString(),
+        'circle.vignette_strength': data['circle_vignette_strength'].toString(),
+        'circle.render_quality': data['circle_render_quality'].value.toString()
+    };
+
+    // Determine spectrum.txt path
+    let spectrumPath;
+    if (['320x240', '480x320', '800x480', '1280x400'].includes(screensize)) {
+        spectrumPath = '/data/plugins/user_interface/peppyspectrum/PeppySpectrum/' + screensize + '/spectrum.txt';
+    } else {
+        spectrumPath = '/data/INTERNAL/PeppySpectrum/Templates/1600x720+radial-intek/spectrum.txt';
+    }
+
+    // Read current spectrum.txt
+    fs.readFile(spectrumPath, 'utf8', (err, data) => {
+        if (err) {
+            self.logger.error(logPrefix + 'Error reading spectrum.txt: ' + err);
+            defer.reject(err);
+            return;
+        }
+
+        // Parse file content
+        let content = data.split('\n');
+        let inSection = false;
+        let newContent = [];
+
+        // Update settings in the correct section
+        for (let line of content) {
+            if (line.trim().startsWith('[')) {
+                inSection = line.trim() === '[' + spectrumSection + ']';
+            }
+            
+            if (inSection) {
+                // Check if line matches any of our settings
+                let matched = false;
+                for (let [key, value] of Object.entries(settings)) {
+                    if (line.trim().startsWith(key + ' =') || line.trim().startsWith(key + '=')) {
+                        newContent.push(key + ' = ' + value);
+                        matched = true;
+                        break;
+                    }
+                }
+                if (!matched) {
+                    newContent.push(line);
+                }
+            } else {
+                newContent.push(line);
+            }
+        }
+
+	    fs.writeFileSync('/tmp/peppy_settings_updated', JSON.stringify({
+    	    section: spectrumSection,
+        	settings: settings
+    	}));
+        
+        // Write updated content back to file
+        fs.writeFile(spectrumPath, newContent.join('\n'), 'utf8', (err) => {
+            if (err) {
+                self.logger.error(logPrefix + 'Error writing spectrum.txt: ' + err);
+                defer.reject(err);
+                return;
+            }
+
+            // Update config file and restart service
+            self.savepeppyconfig()
+                .then(() => {
+                    return self.restartpeppyservice();
+                })
+                .then(() => {
+                    self.commandRouter.pushToastMessage('success', "Circular Spectrum settings updated");
+                    defer.resolve({});
+                })
+                .fail((e) => {
+                    defer.reject(new Error('Failed to update settings'));
+                    self.commandRouter.pushToastMessage('error', "Failed to update circular spectrum settings!");
+                });
+        });
+    });
+
+    // // Create signal file to notify running instance
+//     fs.writeFileSync('/tmp/peppy_settings_updated', JSON.stringify({
+//         section: spectrumSection,
+//         settings: settings
+//     }));
+// 
+//     // Update config file and restart service
+//     self.savepeppyconfig()
+//         .then(() => {
+//             return self.restartpeppyservice();
+//         })
+//         .then(() => {
+//             self.commandRouter.pushToastMessage('success', "Circular Spectrum settings updated");
+//             defer.resolve({});
+//         })
+//         .fail((e) => {
+//             defer.reject(new Error('error'));
+//             self.commandRouter.pushToastMessage('error', "Failed to update circular spectrum settings!");
+//         });
+
+    return defer.promise;
+};
+//peppyspectrum.prototype.savecircular = function (data) {
+//    const self = this;
+//    const defer = libQ.defer();
+//
+//    // Save circular spectrum settings
+//    self.config.set('circle_line_width', data['circle_line_width']);
+//    self.config.set('circle_glow_intensity', data['circle_glow_intensity']);
+//    self.config.set('circle_fill_opacity', data['circle_fill_opacity']);
+//    self.config.set('circle_interpolation_points', data['circle_interpolation_points']);
+//    self.config.set('circle_vignette_strength', data['circle_vignette_strength']);
+//    self.config.set('circle_render_quality', data['circle_render_quality'].value);
+//
+//   // Update config file
+//     self.savepeppyconfig()
+//        .then(() => {
+//            return self.restartpeppyservice();
+//        })
+//        .then(() => {
+//            self.commandRouter.pushToastMessage('success', "Circular Spectrum settings updated");
+//            defer.resolve({});
+//        })
+//        .fail((e) => {
+//            defer.reject(new Error('error'));
+//            self.commandRouter.pushToastMessage('error', "Failed to update circular spectrum settings!");
+//        });
+//
+//    return defer.promise;
+//};
+
 
 //here we save the asound.conf file config
 peppyspectrum.prototype.buildasound = function () {
@@ -649,6 +845,15 @@ peppyspectrum.prototype.savepeppyconfig = function () {
                 var debuglogd = 'True'
             }
             else if (debuglogd = 'False');
+            
+            // New circular spectrum settings
+            var circle_line_width = self.config.get('circle_line_width') || 2;
+            var circle_glow_intensity = self.config.get('circle_glow_intensity') || 40;
+            var circle_fill_opacity = self.config.get('circle_fill_opacity') || 40;
+            var circle_interpolation_points = self.config.get('circle_interpolation_points') || 30;
+            var circle_vignette_strength = self.config.get('circle_vignette_strength') || 255;
+            var circle_render_quality = self.config.get('circle_render_quality') || '4';
+
 
             self.logger.info(logPrefix + "--------------------spectrum" + spectrum)
             self.logger.info(logPrefix + "--------------------$basefolder" + basefolder)
@@ -657,6 +862,14 @@ peppyspectrum.prototype.savepeppyconfig = function () {
             self.logger.info(logPrefix + "--------------------screenheight" + screenheight)
             self.logger.info(logPrefix + "--------------------spectrumsize" + spectrumsize)
 
+           //  const conf1 = data.replace("${spectrum}", spectrum)
+//                 .replace("${basefolder}", basefolder)
+//                 .replace("${screensize}", screensize)
+//                 .replace("${screenwidth}", screenwidth)
+//                 .replace("${screenheight}", screenheight)
+//                 .replace("${spectrumsize}", spectrumsize)
+//                 .replace("${debuglog}", debuglogd)
+			// Create config content
             const conf1 = data.replace("${spectrum}", spectrum)
                 .replace("${basefolder}", basefolder)
                 .replace("${screensize}", screensize)
@@ -664,22 +877,30 @@ peppyspectrum.prototype.savepeppyconfig = function () {
                 .replace("${screenheight}", screenheight)
                 .replace("${spectrumsize}", spectrumsize)
                 .replace("${debuglog}", debuglogd)
+                .replace("${circle_line_width}", circle_line_width)
+                .replace("${circle_glow_intensity}", circle_glow_intensity)
+                .replace("${circle_fill_opacity}", circle_fill_opacity)
+                .replace("${circle_interpolation_points}", circle_interpolation_points)
+                .replace("${circle_vignette_strength}", circle_vignette_strength)
+                .replace("${circle_render_quality}", circle_render_quality);
+
 
 
             fs.writeFile("/data/plugins/user_interface/peppyspectrum/PeppySpectrum/config.txt", conf1, 'utf8', function (err) {
-                if (err)
-
+                if (err) {
                     defer.reject(new Error(err));
-                else defer.resolve();
-                self.logger.error(logPrefix+"Error writing config " + err);
-
+                    self.logger.error(logPrefix + "Error writing config " + err);
+                } else {
+                    defer.resolve();
+                }
             });
 
         });
         self.refreshUI()
 
     } catch (err) {
-
+		self.logger.error(logPrefix + "Error in savepeppyconfig: " + err);
+        defer.reject(err);
     }
     return defer.promise;
 };

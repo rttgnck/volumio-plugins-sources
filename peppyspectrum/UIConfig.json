@@ -63,6 +63,13 @@
 					"options": []
 				},
 				{
+					"id": "autosize",
+					"element": "switch",
+					"doc": "auto screen size",
+					"label": "auto screen size",
+					"value": false
+				},
+				{
 					"id": "screenwidth",
 					"element": "input",
 					"type": "number",
@@ -115,16 +122,171 @@
 						"field": "autosize",
 						"value": false
 					}
-				},
-				{
-					"id": "autosize",
-					"element": "switch",
-					"doc": "auto screen size",
-					"label": "auto screen size",
-					"value": false
 				}
 			]
 		},
+		{
+            "id": "section_circular_spectrum",
+            "element": "section",
+            "label": "Circular Spectrum Settings",
+            "icon": "fa-circle",
+            "onSave": {
+                "type": "controller",
+                "endpoint": "user_interface/peppyspectrum",
+                "method": "savecircular"
+            },
+            "saveButton": {
+                "label": "TRANSLATE.APPLY",
+                "data": [
+                    "circle_line_width",
+                    "circle_glow_intensity",
+                    "circle_fill_opacity",
+                    "circle_interpolation_points",
+                    "circle_vignette_strength",
+                    "circle_render_quality"
+                ]
+            },
+            "content": [
+                {
+                    "id": "circle_line_width",
+                    "element": "input",
+                    "type": "number",
+                    "doc": "Width of the main visualization line",
+                    "label": "Line Width",
+                    "value": 2,
+                    "attributes": [
+                        {
+                            "maxlength": 10
+                        },
+                        {
+                            "min": 1
+                        },
+                        {
+                            "max": 10
+                        },
+                        {
+                            "step": 1
+                        }
+                    ]
+                },
+                {
+                    "id": "circle_glow_intensity",
+                    "element": "input",
+                    "type": "number",
+                    "doc": "Intensity of the glow effect (0-255)",
+                    "label": "Glow Intensity",
+                    "value": 40,
+                    "attributes": [
+                        {
+                            "maxlength": 255
+                        },
+                        {
+                            "min": 0
+                        },
+                        {
+                            "max": 255
+                        },
+                        {
+                            "step": 5
+                        }
+                    ]
+                },
+                {
+                    "id": "circle_fill_opacity",
+                    "element": "input",
+                    "type": "number",
+                    "doc": "Opacity of the fill effect (0-255)",
+                    "label": "Fill Opacity",
+                    "value": 40,
+                    "attributes": [
+                        {
+                            "maxlength": 255
+                        },
+                        {
+                            "min": 0
+                        },
+                        {
+                            "max": 255
+                        },
+                        {
+                            "step": 5
+                        }
+                    ]
+                },
+                {
+                    "id": "circle_interpolation_points",
+                    "element": "input",
+                    "type": "number",
+                    "doc": "Number of interpolation points (more = smoother but slower)",
+                    "label": "Smoothness",
+                    "value": 30,
+                    "attributes": [
+                        {
+                            "maxlength": 200
+                        },
+                        {
+                            "min": 10
+                        },
+                        {
+                            "max": 200
+                        },
+                        {
+                            "step": 5
+                        }
+                    ]
+                },
+                {
+                    "id": "circle_vignette_strength",
+                    "element": "input",
+                    "type": "number",
+                    "doc": "Strength of the edge darkening effect (0-255)",
+                    "label": "Edge Darkness",
+                    "value": 255,
+                    "attributes": [
+                        {
+                            "maxlength": 255
+                        },
+                        {
+                            "min": 0
+                        },
+                        {
+                            "max": 255
+                        },
+                        {
+                            "step": 5
+                        }
+                    ]
+                },
+                {
+                    "id": "circle_render_quality",
+                    "element": "select",
+                    "doc": "Visual quality vs performance tradeoff",
+                    "label": "Render Quality",
+                    "value": {
+                        "value": "4",
+                        "label": "Normal"
+                    },
+                    "options": [
+                        {
+                            "value": "8",
+                            "label": "Low (Fastest)"
+                        },
+                        {
+                            "value": "4",
+                            "label": "Normal"
+                        },
+                        {
+                            "value": "2",
+                            "label": "High (Slower)"
+                        },
+                        {
+                            "value": "1",
+                            "label": "Ultra (Slowest)"
+                        }
+                    ]
+                }
+            ]
+        },
 		{
 			"id": "section_log",
 			"element": "section",

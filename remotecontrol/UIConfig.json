@@ -1,0 +1,40 @@
+{
+  "page": {
+    "label": "Remote Control Configuration"
+  },
+  "sections": [
+    {
+      "id": "section_connection",
+      "element": "section",
+      "label": "Connection Settings",
+      "icon": "fa-plug",
+      "onSave": {
+        "type": "controller",
+        "endpoint": "music_service/remotecontrol",
+        "method": "saveConfig"
+      },
+      "saveButton": {
+        "label": "Save",
+        "data": [
+          "port",
+          "debug"
+        ]
+      },
+      "content": [
+        {
+          "id": "port",
+          "type": "number",
+          "element": "input",
+          "label": "WebSocket Port",
+          "value": 3000
+        },
+        {
+          "id": "debug",
+          "element": "switch",
+          "label": "Debug Mode",
+          "value": false
+        }
+      ]
+    }
+  ]
+}

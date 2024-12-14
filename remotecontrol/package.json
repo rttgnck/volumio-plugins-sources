@@ -1,0 +1,33 @@
+{
+	"name": "remotecontrol",
+	"version": "1.0.0",
+	"description": "Control Volumio using a Lilygo T-Encoder",
+	"main": "index.js",
+	"scripts": {
+		"test": "echo \"Error: no test specified\" && exit 1"
+	},
+	"author": "intek",
+	"license": "ISC",
+	"repository": "https://github.com/yourname/yourrepo",
+	"volumio_info": {
+		"prettyName": "RemoteControl",
+		"icon": "fa-gamepad",
+		"plugin_type": "user_interface",
+		"architectures": [
+			"amd64",
+			"armhf",
+			"i386"
+		],
+		"os": [
+			"buster"
+		],
+		"details": "Lorem ipsum",
+		"changelog": "Lorem ipsum"
+	},
+	"dependencies": {
+		"fs-extra": "^0.28.0",
+		"kew": "^0.7.0",
+		"v-conf": "^1.4.0",
+		"ws": "^7.4.6"
+	  }
+}

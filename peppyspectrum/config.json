@@ -1,11 +1,62 @@
 {
-"spectrum":{"type":"string","value":"Random"},
-"screensize":{"type":"string","value":"320x240"},
-"screenwidth":{"type":"string","value":""},
-"screenheight":{"type":"string","value":""},
-"spectrumsize":{"type":"number","value":30},
-"debuglog":{"type":"boolean","value":false},
-"showsize":{"type":"boolean","value":false},
-"autosize":{"type":"boolean","value":true},
-"zipfile":{"type":"string","value":"Choose a packet"}
+  "spectrum": {
+    "type": "string",
+    "value": "Random"
+  },
+  "screensize": {
+    "type": "string",
+    "value": "320x240"
+  },
+  "screenwidth": {
+    "type": "string",
+    "value": ""
+  },
+  "screenheight": {
+    "type": "string",
+    "value": ""
+  },
+  "spectrumsize": {
+    "type": "number",
+    "value": 30
+  },
+  "debuglog": {
+    "type": "boolean",
+    "value": false
+  },
+  "showsize": {
+    "type": "boolean",
+    "value": false
+  },
+  "autosize": {
+    "type": "boolean",
+    "value": true
+  },
+  "zipfile": {
+    "type": "string",
+    "value": "Choose a packet"
+  },
+  "circle_line_width": {
+    "type": "number",
+    "value": 2
+  },
+  "circle_glow_intensity": {
+    "type": "number",
+    "value": 40
+  },
+  "circle_fill_opacity": {
+    "type": "number",
+    "value": 40
+  },
+  "circle_interpolation_points": {
+    "type": "number",
+    "value": 30
+  },
+  "circle_vignette_strength": {
+    "type": "number",
+    "value": 255
+  },
+  "circle_render_quality": {
+    "type": "string",
+    "value": "4"
+  }
 }

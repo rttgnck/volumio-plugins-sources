@@ -1,0 +1,10 @@
+{
+    "port": {
+      "type": "number",
+      "value": 3000
+    },
+    "debug": {
+      "type": "boolean",
+      "value": false
+    }
+  }
