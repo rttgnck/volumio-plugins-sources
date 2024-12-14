@@ -1,7 +1,7 @@
 {
     "port": {
       "type": "number",
-      "value": 3000
+      "value": 4000
     },
     "debug": {
       "type": "boolean",
