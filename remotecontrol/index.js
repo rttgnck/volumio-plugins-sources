@@ -29,15 +29,15 @@ class VolumioStateTesterPlugin {
 
   onStart() {
     try {
-      // Get volumio socket instance
-      this.socket = this.commandRouter.volumioGetSocket();
+      // Get volumio's socket.io instance
+      this.socket = this.context.websocketServer;
       
       if (!this.socket) {
-        this.logger.error('VolumioStateTester: Failed to get Volumio socket');
-        return libQ.reject(new Error('Failed to get Volumio socket'));
+        this.logger.error('VolumioStateTester: Failed to get Volumio websocket server');
+        return libQ.reject(new Error('Failed to get Volumio websocket server'));
       }
 
-      this.logger.info('VolumioStateTester: Successfully got Volumio socket');
+      this.logger.info('VolumioStateTester: Successfully got Volumio websocket server');
 
       // Request initial state
       const state = this.commandRouter.volumioGetState();
@@ -54,45 +54,46 @@ class VolumioStateTesterPlugin {
   }
 
   initializeStateListeners() {
-    // State changes (play, pause, etc)
-    this.socket.on('pushState', (state) => {
-      this.logger.info('VolumioStateTester: State Change Event Received');
-      this.logger.info('State Data:', JSON.stringify(state, null, 2));
-    });
+    // The socket instance from context.websocketServer is the server instance
+    // We need to listen for new connections
+    this.socket.on('connection', (socket) => {
+      this.logger.info('VolumioStateTester: New client connected');
 
-    // Queue changes
-    this.socket.on('pushQueue', (queue) => {
-      this.logger.info('VolumioStateTester: Queue Change Event Received');
-      this.logger.info('Queue Length:', queue.length);
-      if (queue && queue.length > 0) {
-        this.logger.info('First Track:', JSON.stringify(queue[0], null, 2));
-      }
-    });
+      // State changes (play, pause, etc)
+      socket.on('pushState', (state) => {
+        this.logger.info('VolumioStateTester: State Change Event Received');
+        this.logger.info('State Data:', JSON.stringify(state, null, 2));
+      });
 
-    // Volume changes
-    this.socket.on('volume', (vol) => {
-      this.logger.info('VolumioStateTester: Volume Changed to:', vol);
-    });
+      // Queue changes
+      socket.on('pushQueue', (queue) => {
+        this.logger.info('VolumioStateTester: Queue Change Event Received');
+        this.logger.info('Queue Length:', queue.length);
+        if (queue && queue.length > 0) {
+          this.logger.info('First Track:', JSON.stringify(queue[0], null, 2));
+        }
+      });
 
-    // Service state updates
-    this.socket.on('serviceUpdateTrackList', (data) => {
-      this.logger.info('VolumioStateTester: Service Track List Update:', data);
-    });
+      // Volume changes
+      socket.on('volume', (vol) => {
+        this.logger.info('VolumioStateTester: Volume Changed to:', vol);
+      });
 
-    // Multiroom updates
-    this.socket.on('pushMultiRoomDevices', (data) => {
-      this.logger.info('VolumioStateTester: Multiroom Devices Update:', JSON.stringify(data, null, 2));
+      // Service state updates
+      socket.on('serviceUpdateTrackList', (data) => {
+        this.logger.info('VolumioStateTester: Service Track List Update:', data);
+      });
+
+      // Get initial client state
+      socket.emit('getState', '', (state) => {
+        this.logger.info('VolumioStateTester: Client initial state:', JSON.stringify(state, null, 2));
+      });
     });
   }
 
   onStop() {
     if (this.socket) {
-      // Remove our listeners but don't disconnect the socket
-      this.socket.removeAllListeners('pushState');
-      this.socket.removeAllListeners('pushQueue');
-      this.socket.removeAllListeners('volume');
-      this.socket.removeAllListeners('serviceUpdateTrackList');
-      this.socket.removeAllListeners('pushMultiRoomDevices');
+      this.socket.removeAllListeners('connection');
       this.logger.info('VolumioStateTester: Removed all listeners');
     }
     return libQ.resolve();
