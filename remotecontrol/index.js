@@ -98,12 +98,12 @@ RemoteControlPlugin.prototype.onStart = function() {
     this.state = state;
     self.logger.info('RemoteControl: State changed:', state);
     // Broadcast to all connected clients if WebSocket server exists
-    if (this.wsServer) {
+    // if (this.wsServer) {
       for (const client of this.connectedClients.values()) {
         self.logger.info('RemoteControl: Broadcasting state to client');
         this.sendCurrentState(client);
       }
-    }
+    // }
   });
 
   return libQ.resolve();
