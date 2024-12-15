@@ -1,16 +1,14 @@
 'use strict';
 
 const libQ = require('kew');
-const fs = require('fs-extra');
+const io = require('socket.io-client');
 
 class VolumioStateTesterPlugin {
   constructor(context) {
     this.context = context;
     this.commandRouter = this.context.coreCommand;
     this.logger = this.context.logger;
-    
-    // Get socket.io instance
-    this.volumioSocket = null;
+    this.socket = null;
     
     this.logger.info('VolumioStateTester: Plugin initialized');
   }
@@ -23,68 +21,67 @@ class VolumioStateTesterPlugin {
   }
 
   onStart() {
-    // Get volumio socket instance
-    this.volumioSocket = this.commandRouter.volumioGetSocket();
-    if (!this.volumioSocket) {
-      this.logger.error('VolumioStateTester: Failed to get Volumio socket instance');
-      return libQ.reject(new Error('Failed to get Volumio socket'));
+    try {
+      // Connect directly to Volumio's socket.io server
+      this.socket = io('http://localhost:3000');
+      
+      // Connection events
+      this.socket.on('connect', () => {
+        this.logger.info('VolumioStateTester: Successfully connected to Volumio socket.io server');
+        
+        // Request initial state once connected
+        this.socket.emit('getState', '', (state) => {
+          this.logger.info('VolumioStateTester: Initial state received:', JSON.stringify(state, null, 2));
+        });
+      });
+
+      this.socket.on('connect_error', (error) => {
+        this.logger.error('VolumioStateTester: Connection error:', error);
+      });
+
+      // Initialize state event listeners
+      this.initializeStateListeners();
+
+      return libQ.resolve();
+    } catch (error) {
+      this.logger.error('VolumioStateTester: Failed to start:', error);
+      return libQ.reject(error);
     }
-
-    this.logger.info('VolumioStateTester: Successfully connected to Volumio socket');
-
-    // Initialize state event listeners
-    this.initializeStateListeners();
-
-    return libQ.resolve();
   }
 
   initializeStateListeners() {
-    // Volume changes
-    this.volumioSocket.on('volume', (data) => {
-      this.logger.info('VolumioStateTester: Volume Event Received');
-      this.logger.info('Volume Data:', JSON.stringify(data, null, 2));
-    });
-
     // State changes (play, pause, etc)
-    this.volumioSocket.on('pushState', (state) => {
+    this.socket.on('pushState', (state) => {
       this.logger.info('VolumioStateTester: State Change Event Received');
       this.logger.info('State Data:', JSON.stringify(state, null, 2));
     });
 
     // Queue changes
-    this.volumioSocket.on('pushQueue', (queue) => {
+    this.socket.on('pushQueue', (queue) => {
       this.logger.info('VolumioStateTester: Queue Change Event Received');
-      this.logger.info('Queue Data:', JSON.stringify(queue, null, 2));
+      this.logger.info('Queue Length:', queue.length);
+      if (queue.length > 0) {
+        this.logger.info('First Track:', JSON.stringify(queue[0], null, 2));
+      }
     });
 
-    // Seek changes
-    this.volumioSocket.on('seek', (data) => {
-      this.logger.info('VolumioStateTester: Seek Event Received');
-      this.logger.info('Seek Data:', JSON.stringify(data, null, 2));
+    // Volume changes
+    this.socket.on('volume', (vol) => {
+      this.logger.info('VolumioStateTester: Volume Changed to:', vol);
     });
 
-    // Service updates
-    this.volumioSocket.on('serviceUpdate', (data) => {
-      this.logger.info('VolumioStateTester: Service Update Event Received');
-      this.logger.info('Service Data:', JSON.stringify(data, null, 2));
-    });
-
-    // Track info changes
-    this.volumioSocket.on('trackInfo', (data) => {
-      this.logger.info('VolumioStateTester: Track Info Event Received');
-      this.logger.info('Track Info:', JSON.stringify(data, null, 2));
-    });
+    // Test emit (based on the community thread example)
+    setInterval(() => {
+      this.socket.emit('getState', '', (state) => {
+        this.logger.info('VolumioStateTester: Periodic state check:', JSON.stringify(state, null, 2));
+      });
+    }, 5000); // Check every 5 seconds
   }
 
   onStop() {
-    // Clean up listeners if needed
-    if (this.volumioSocket) {
-      this.volumioSocket.off('volume');
-      this.volumioSocket.off('pushState');
-      this.volumioSocket.off('pushQueue');
-      this.volumioSocket.off('seek');
-      this.volumioSocket.off('serviceUpdate');
-      this.volumioSocket.off('trackInfo');
+    if (this.socket) {
+      this.logger.info('VolumioStateTester: Disconnecting socket');
+      this.socket.disconnect();
     }
     return libQ.resolve();
   }
