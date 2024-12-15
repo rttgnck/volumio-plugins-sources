@@ -47,8 +47,9 @@ RemoteControlPlugin.prototype.onStart = function() {
             // Generate unique token for client
             const token = crypto.randomBytes(32).toString('hex');
             self.connectedClients.set(token, ws);
-            ws.send(JSON.stringify({ type: 'registration', token: token }));
-            self.logger.info('RemoteControl: Client registered with token:', token);
+            const response = { type: 'registration', token: token };
+            ws.send(JSON.stringify(response));
+            self.logger.info(`RemoteControl: Client registered with token: ${token}`);
             
             // Send initial state
             self.sendCurrentState(ws);
@@ -94,16 +95,18 @@ RemoteControlPlugin.prototype.onStart = function() {
   }
   
   // Subscribe to state updates using Socket.io
-  this.socket.on('pushState', (state) => {
-    this.state = state;
+  this.socket.on('pushState', function(state) {
+    self.state = state;
     self.logger.info('RemoteControl: State changed:', state);
-    // Broadcast to all connected clients if WebSocket server exists
-    // if (this.wsServer) {
-      for (const client of this.connectedClients.values()) {
-        self.logger.info('RemoteControl: Broadcasting state to client');
-        this.sendCurrentState(client);
+    // Broadcast to all connected clients
+    if (self.wsServer && self.connectedClients.size > 0) {
+      for (const client of self.connectedClients.values()) {
+        if (client.readyState === WebSocket.OPEN) {
+          self.logger.info('RemoteControl: Broadcasting state to client');
+          self.sendCurrentState(client);
+        }
       }
-    // }
+    }
   });
 
   return libQ.resolve();
