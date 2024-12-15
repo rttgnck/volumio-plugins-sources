@@ -1,4 +1,3 @@
-// volumio-remotecontrol-plugin/index.js
 'use strict';
 
 const libQ = require('kew');
@@ -14,14 +13,17 @@ class RemoteControlPlugin {
     this.configManager = this.context.configManager;
     this.wsServer = null;
     this.connectedClients = new Map();
-    this.state = {}; // Initialize state object
-
-    // Bind methods to preserve 'this' context
+    this.state = {};
+    
+    // Get socket.io instance
+    this.volumioSocket = null;
+    
+    // Bind methods
     this.onVolumeChange = this.onVolumeChange.bind(this);
     this.onPlaybackStateChange = this.onPlaybackStateChange.bind(this);
-    this.onTrackChange = this.onTrackChange.bind(this);
+    this.onQueueChange = this.onQueueChange.bind(this);
     this.initializeListeners = this.initializeListeners.bind(this);
-
+    
     this.logger.info('RemoteControl: Plugin initialized');
   }
 
@@ -29,271 +31,181 @@ class RemoteControlPlugin {
     const configFile = this.commandRouter.pluginManager.getConfigurationFile(this.context, 'config.json');
     this.config = new (require('v-conf'))();
     this.config.loadFile(configFile);
-    this.logger.info('RemoteControl: Plugin config loaded');
     return libQ.resolve();
   }
 
   onStart() {
-    const self = this;
+    // Get volumio socket instance
+    this.volumioSocket = this.commandRouter.volumioGetSocket();
+    if (!this.volumioSocket) {
+      this.logger.error('RemoteControl: Failed to get Volumio socket instance');
+      return libQ.reject(new Error('Failed to get Volumio socket'));
+    }
 
-    // Initialize state listeners
-    this.initializeListeners();
-    this.logger.info('RemoteControl: State listeners initialized');
-
-    // Initialize WebSocket server with error handling
+    // Initialize WebSocket server
     try {
       this.wsServer = new WebSocket.Server({ port: 16891 });
       this.logger.info('RemoteControl: WebSocket server created on port 16891');
       
-      this.wsServer.on('connection', function(ws) {
-        self.logger.info('New RemoteControl client connected');
+      this.wsServer.on('connection', (ws) => {
+        this.logger.info('RemoteControl: New client connected');
         
-        ws.on('message', function(message) {
+        ws.on('message', (message) => {
           try {
             const data = JSON.parse(message);
-            self.logger.info('RemoteControl: Received message:', JSON.stringify(data));
+            this.logger.info('RemoteControl: Received message:', data);
             
             if (data.type === 'register') {
               const token = crypto.randomBytes(32).toString('hex');
-              self.connectedClients.set(token, ws);
-              const response = { type: 'registration', token: token };
-              ws.send(JSON.stringify(response));
-              self.logger.info(`RemoteControl: Client registered with token: ${token}`);
+              this.connectedClients.set(token, ws);
+              ws.send(JSON.stringify({ type: 'registration', token }));
               
               // Send initial state
-              self.sendCurrentState(ws);
-            } else if (data.type === 'command') {
-              if (self.connectedClients.has(data.token)) {
-                self.logger.info('RemoteControl: Processing command:', data.command);
-                self.handleClientCommand(data.command);
-              } else {
-                self.logger.warn('RemoteControl: Invalid token received:', data.token);
-              }
+              this.sendCurrentState(ws);
+            } 
+            else if (data.type === 'command' && this.connectedClients.has(data.token)) {
+              this.handleClientCommand(data.command);
             }
           } catch (error) {
-            self.logger.error('RemoteControl: Error processing message: ' + error);
+            this.logger.error('RemoteControl: Error processing message:', error);
           }
         });
         
-        ws.on('close', function() {
-          for (const [token, client] of self.connectedClients.entries()) {
+        ws.on('close', () => {
+          for (const [token, client] of this.connectedClients.entries()) {
             if (client === ws) {
-              self.connectedClients.delete(token);
-              self.logger.info('RemoteControl: Client disconnected, token removed:', token);
+              this.connectedClients.delete(token);
               break;
             }
           }
         });
       });
 
-      this.wsServer.on('error', function(error) {
-        if (error.code === 'EADDRINUSE') {
-          self.logger.error('RemoteControl: WebSocket port 16891 is already in use');
-          self.wsServer = null;
-        } else {
-          self.logger.error('RemoteControl: WebSocket server error: ' + error);
-        }
-      });
-      
+      // Initialize Volumio event listeners
+      this.initializeListeners();
+
     } catch (error) {
-      self.logger.error('RemoteControl: Failed to start WebSocket server: ' + error);
-      this.wsServer = null;
+      this.logger.error('RemoteControl: Failed to start:', error);
+      return libQ.reject(error);
     }
 
     return libQ.resolve();
   }
 
-  // Initialize all state listeners
   initializeListeners() {
-    // Get the Volumio socket.io instance
-    const socket = this.commandRouter.volumioGetSocket();
-    this.logger.info('RemoteControl: Got Volumio socket.io instance');
-
-    // Listen for volume changes
-    socket.on('volume', this.onVolumeChange);
-    this.logger.info('RemoteControl: Volume change listener registered');
-
-    // Listen for play state changes  
-    socket.on('pushState', this.onPlaybackStateChange);
-    this.logger.info('RemoteControl: Playback state change listener registered');
-
-    // Listen for track changes
-    socket.on('queue', this.onTrackChange);
-    this.logger.info('RemoteControl: Track change listener registered');
-  }
-
-  // Handle volume changes
-  onVolumeChange(data) {
-    this.logger.info('RemoteControl: Volume changed:', JSON.stringify(data));
-    if (this.wsServer && this.connectedClients.size > 0) {
-      const message = JSON.stringify({
+    // Volume changes
+    this.volumioSocket.on('volume', (data) => {
+      this.logger.info('RemoteControl: Volume changed:', data);
+      this.broadcastToClients({
         type: 'volume',
         value: data
       });
+    });
 
-      this.logger.info('RemoteControl: Broadcasting volume change to clients:', message);
-      for (const client of this.connectedClients.values()) {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(message);
+    // State changes
+    this.volumioSocket.on('pushState', (state) => {
+      this.logger.info('RemoteControl: State changed:', state);
+      this.state = state;
+      this.broadcastToClients({
+        type: 'state',
+        data: {
+          status: state.status,
+          title: state.title,
+          artist: state.artist,
+          album: state.album,
+          albumart: state.albumart,
+          duration: state.duration,
+          seek: state.seek,
+          samplerate: state.samplerate,
+          bitdepth: state.bitdepth,
+          trackType: state.trackType,
+          volume: state.volume
         }
-      }
-    }
-  }
-
-  // Handle playback state changes (play/pause/stop)
-  onPlaybackStateChange(state) {
-    this.logger.info('RemoteControl: Playback state changed:', JSON.stringify(state));
-    
-    try {
-        this.state = state;
-        if (this.wsServer && this.connectedClients.size > 0) {
-            const message = JSON.stringify({
-                type: 'state',
-                data: {
-                    status: state.status,
-                    title: state.title,
-                    artist: state.artist,
-                    album: state.album,
-                    albumart: state.albumart,
-                    duration: state.duration,
-                    seek: state.seek,
-                    samplerate: state.samplerate,
-                    bitdepth: state.bitdepth,
-                    trackType: state.trackType,
-                    volume: state.volume
-                }
-            });
-
-            let broadcastCount = 0;
-            for (const client of this.connectedClients.values()) {
-                if (client.readyState === WebSocket.OPEN) {
-                    client.send(message);
-                    broadcastCount++;
-                }
-            }
-            this.logger.info(`RemoteControl: State change broadcast to ${broadcastCount} clients`);
-        } else {
-            this.logger.info('RemoteControl: No clients connected to broadcast state change');
-        }
-    } catch (error) {
-        this.logger.error('RemoteControl: Error broadcasting state change:', error);
-    }
-  }
-
-  // Handle track changes
-  onTrackChange(queue) {
-    this.logger.info('RemoteControl: Track queue changed:', JSON.stringify(queue));
-    if (!queue || !queue.length) {
-      this.logger.info('RemoteControl: Queue is empty or invalid');
-      return;
-    }
-    
-    const currentTrack = queue[0];
-    if (this.wsServer && this.connectedClients.size > 0) {
-      const message = JSON.stringify({
-        type: 'trackChange',
-        title: currentTrack.name,
-        artist: currentTrack.artist,
-        album: currentTrack.album,
-        duration: currentTrack.duration
       });
+    });
 
-      this.logger.info('RemoteControl: Broadcasting track change to clients:', message);
-      for (const client of this.connectedClients.values()) {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(message);
-        }
+    // Queue changes
+    this.volumioSocket.on('pushQueue', (queue) => {
+      this.logger.info('RemoteControl: Queue changed:', queue);
+      if (queue && queue.length > 0) {
+        this.broadcastToClients({
+          type: 'trackChange',
+          title: queue[0].name,
+          artist: queue[0].artist,
+          album: queue[0].album,
+          duration: queue[0].duration
+        });
+      }
+    });
+  }
+
+  broadcastToClients(message) {
+    const messageStr = JSON.stringify(message);
+    this.logger.info('RemoteControl: Broadcasting to clients:', messageStr);
+    
+    for (const client of this.connectedClients.values()) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(messageStr);
       }
     }
   }
 
   sendCurrentState(ws) {
-    if (!this.state) {
-      this.logger.warn('RemoteControl: No state available to send');
-      return;
-    }
-    
-    const response = {
-      type: 'state',
-      data: {
-        status: this.state.status,
-        title: this.state.title,
-        artist: this.state.artist,
-        album: this.state.album,
-        albumart: this.state.albumart,
-        duration: this.state.duration,
-        seek: this.state.seek,
-        samplerate: this.state.samplerate,
-        bitdepth: this.state.bitdepth,
-        trackType: this.state.trackType,
-        volume: this.state.volume
-      }
-    };
+    if (!this.state) return;
     
     try {
-      this.logger.info('RemoteControl: Sending current state to client:', JSON.stringify(response));
-      ws.send(JSON.stringify(response));
-      this.logger.info('RemoteControl: Sent current state to client successfully');
+      const message = JSON.stringify({
+        type: 'state',
+        data: {
+          status: this.state.status,
+          title: this.state.title,
+          artist: this.state.artist,
+          album: this.state.album,
+          albumart: this.state.albumart,
+          duration: this.state.duration,
+          seek: this.state.seek,
+          samplerate: this.state.samplerate,
+          bitdepth: this.state.bitdepth,
+          trackType: this.state.trackType,
+          volume: this.state.volume
+        }
+      });
+      
+      ws.send(message);
     } catch (error) {
-      this.logger.error('RemoteControl: Error sending current state:', error);
+      this.logger.error('RemoteControl: Error sending state:', error);
     }
   }
 
   handleClientCommand(command) {
-    this.logger.info('RemoteControl: Handling client command:', command);
+    this.logger.info('RemoteControl: Handling command:', command);
+    
     switch (command) {
       case 'toggle':
-        this.commandRouter.volumioToggle();
+        this.volumioSocket.emit('play');
         break;
       case 'next':
-        this.commandRouter.volumioNext();
+        this.volumioSocket.emit('next');
         break;
       case 'previous':
-        this.commandRouter.volumioPrevious();
+        this.volumioSocket.emit('prev');
         break;
       case 'volume_up':
-        this.commandRouter.volumioVolume('+');
+        this.volumioSocket.emit('volume', '+');
         break;
       case 'volume_down':
-        this.commandRouter.volumioVolume('-');
+        this.volumioSocket.emit('volume', '-');
         break;
       default:
-        this.logger.warn('RemoteControl: Unknown command received: ' + command);
-        break;
+        this.logger.warn('RemoteControl: Unknown command:', command);
     }
   }
 
   onStop() {
     if (this.wsServer) {
-      try {
-        this.wsServer.close();
-        this.logger.info('RemoteControl: WebSocket server stopped');
-      } catch (error) {
-        this.logger.error('RemoteControl: Error stopping WebSocket server: ' + error);
-      }
+      this.wsServer.close();
     }
-    
     return libQ.resolve();
-  }
-
-  // Configuration Methods
-  getUIConfig() {
-    const defer = libQ.defer();
-    const self = this;
-
-    const lang_code = self.commandRouter.sharedVars.get('language_code');
-
-    self.commandRouter.i18nJson(__dirname + '/i18n/strings_' + lang_code + '.json',
-      __dirname + '/i18n/strings_en.json',
-      __dirname + '/UIConfig.json')
-      .then((uiconf) => {
-        defer.resolve(uiconf);
-      })
-      .fail((error) => {
-        defer.reject(new Error());
-      });
-
-    return defer.promise;
   }
 
   getConfigurationFiles() {
