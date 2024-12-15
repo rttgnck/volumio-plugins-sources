@@ -5,6 +5,7 @@ const libQ = require('kew');
 const fs = require('fs-extra');
 const WebSocket = require('ws');
 const crypto = require('crypto');
+const SocketIO = require('socket.io-client');
 
 module.exports = RemoteControlPlugin;
 
@@ -15,6 +16,9 @@ function RemoteControlPlugin(context) {
   this.configManager = this.context.configManager;
   this.wsServer = null;
   this.connectedClients = new Map(); // Store client connections with their tokens
+  
+  // Initialize Socket.io connection
+  this.socket = SocketIO.connect('http://volumio.local');
 }
 
 RemoteControlPlugin.prototype.onVolumioStart = function() {
@@ -89,12 +93,8 @@ RemoteControlPlugin.prototype.onStart = function() {
     this.wsServer = null;
   }
   
-  // Subscribe to state updates using the correct method
-  this.state = this.commandRouter.volumioGetState();
-  self.logger.info('RemoteControl: Initial state received:', this.state);
-
-  // Register callback for state changes
-  this.commandRouter.addCallback('volumioStateChanged', (state) => {
+  // Subscribe to state updates using Socket.io
+  this.socket.on('pushState', (state) => {
     this.state = state;
     self.logger.info('RemoteControl: State changed:', state);
     // Broadcast to all connected clients if WebSocket server exists
@@ -110,7 +110,7 @@ RemoteControlPlugin.prototype.onStart = function() {
 };
 
 RemoteControlPlugin.prototype.sendCurrentState = function(ws) {
-  const state = this.commandRouter.volumioGetState();
+  const state = this.state || {};
   const response = {
     type: 'state',
     data: {
@@ -163,6 +163,11 @@ RemoteControlPlugin.prototype.onStop = function() {
       this.logger.error('RemoteControl: Error stopping WebSocket server: ' + error);
     }
   }
+  
+  if (this.socket) {
+    this.socket.disconnect();
+  }
+  
   return libQ.resolve();
 };
 
