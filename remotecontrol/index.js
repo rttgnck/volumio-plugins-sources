@@ -1,14 +1,13 @@
 'use strict';
 
 const libQ = require('kew');
-const io = require('socket.io-client');
 
 class VolumioStateTesterPlugin {
   constructor(context) {
     this.context = context;
     this.commandRouter = this.context.coreCommand;
     this.logger = this.context.logger;
-    this.socket = null;
+    this.config = {};
     
     // Required for plugin interface
     this.broadcastMessage = this.broadcastMessage.bind(this);
@@ -16,10 +15,8 @@ class VolumioStateTesterPlugin {
     this.logger.info('VolumioStateTester: Plugin initialized');
   }
 
-  // Required method to handle broadcast messages
   broadcastMessage(emit, payload) {
     this.logger.info('VolumioStateTester: Broadcast message received:', emit, payload);
-    // Return a promise as expected by Volumio
     return libQ.resolve();
   }
 
@@ -32,28 +29,20 @@ class VolumioStateTesterPlugin {
 
   onStart() {
     try {
-      // Connect directly to Volumio's socket.io server
-      this.socket = io('http://localhost:3000', {
-        reconnection: true,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 5000,
-        reconnectionAttempts: 5
-      });
+      // Get volumio socket instance
+      this.socket = this.commandRouter.volumioGetSocket();
       
-      // Connection events
-      this.socket.on('connect', () => {
-        this.logger.info('VolumioStateTester: Successfully connected to Volumio socket.io server');
-        
-        // Request initial state once connected
-        this.socket.emit('getState', '', (state) => {
-          this.logger.info('VolumioStateTester: Initial state received:', JSON.stringify(state, null, 2));
-        });
-      });
+      if (!this.socket) {
+        this.logger.error('VolumioStateTester: Failed to get Volumio socket');
+        return libQ.reject(new Error('Failed to get Volumio socket'));
+      }
 
-      this.socket.on('connect_error', (error) => {
-        this.logger.error('VolumioStateTester: Connection error:', error);
-      });
+      this.logger.info('VolumioStateTester: Successfully got Volumio socket');
 
+      // Request initial state
+      const state = this.commandRouter.volumioGetState();
+      this.logger.info('VolumioStateTester: Initial state:', JSON.stringify(state, null, 2));
+      
       // Initialize state event listeners
       this.initializeStateListeners();
 
@@ -75,7 +64,7 @@ class VolumioStateTesterPlugin {
     this.socket.on('pushQueue', (queue) => {
       this.logger.info('VolumioStateTester: Queue Change Event Received');
       this.logger.info('Queue Length:', queue.length);
-      if (queue.length > 0) {
+      if (queue && queue.length > 0) {
         this.logger.info('First Track:', JSON.stringify(queue[0], null, 2));
       }
     });
@@ -85,24 +74,32 @@ class VolumioStateTesterPlugin {
       this.logger.info('VolumioStateTester: Volume Changed to:', vol);
     });
 
-    // Test emit (based on the community thread example)
-    setInterval(() => {
-      this.socket.emit('getState', '', (state) => {
-        this.logger.info('VolumioStateTester: Periodic state check:', JSON.stringify(state, null, 2));
-      });
-    }, 5000); // Check every 5 seconds
-  }
+    // Service state updates
+    this.socket.on('serviceUpdateTrackList', (data) => {
+      this.logger.info('VolumioStateTester: Service Track List Update:', data);
+    });
 
-  getConfigurationFiles() {
-    return ['config.json'];
+    // Multiroom updates
+    this.socket.on('pushMultiRoomDevices', (data) => {
+      this.logger.info('VolumioStateTester: Multiroom Devices Update:', JSON.stringify(data, null, 2));
+    });
   }
 
   onStop() {
     if (this.socket) {
-      this.logger.info('VolumioStateTester: Disconnecting socket');
-      this.socket.disconnect();
+      // Remove our listeners but don't disconnect the socket
+      this.socket.removeAllListeners('pushState');
+      this.socket.removeAllListeners('pushQueue');
+      this.socket.removeAllListeners('volume');
+      this.socket.removeAllListeners('serviceUpdateTrackList');
+      this.socket.removeAllListeners('pushMultiRoomDevices');
+      this.logger.info('VolumioStateTester: Removed all listeners');
     }
     return libQ.resolve();
+  }
+
+  getConfigurationFiles() {
+    return ['config.json'];
   }
 
   // Required methods for Volumio plugin interface
