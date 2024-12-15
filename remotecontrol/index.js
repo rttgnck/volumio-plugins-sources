@@ -27,51 +27,67 @@ RemoteControlPlugin.prototype.onVolumioStart = function() {
 RemoteControlPlugin.prototype.onStart = function() {
   const self = this;
   
-  // Initialize WebSocket server
-  this.wsServer = new WebSocket.Server({ port: 16891 });
-  
-  this.wsServer.on('connection', function(ws) {
-    self.logger.info('New RemoteControl client connected');
+  // Initialize WebSocket server with error handling
+  try {
+    this.wsServer = new WebSocket.Server({ port: 16891 });
     
-    ws.on('message', function(message) {
-      try {
-        const data = JSON.parse(message);
-        self.logger.info('RemoteControl: Received message:', data);
-        
-        if (data.type === 'register') {
-          // Generate unique token for client
-          const token = crypto.randomBytes(32).toString('hex');
-          self.connectedClients.set(token, ws);
-          ws.send(JSON.stringify({ type: 'registration', token: token }));
-          self.logger.info('RemoteControl: Client registered with token:', token);
+    this.wsServer.on('connection', function(ws) {
+      self.logger.info('New RemoteControl client connected');
+      
+      ws.on('message', function(message) {
+        try {
+          const data = JSON.parse(message);
+          self.logger.info('RemoteControl: Received message:', data);
           
-          // Send initial state
-          self.sendCurrentState(ws);
-        } else if (data.type === 'command') {
-          // Verify token before processing commands
-          if (self.connectedClients.has(data.token)) {
-            self.logger.info('RemoteControl: Processing command:', data.command);
-            self.handleClientCommand(data.command);
-          } else {
-            self.logger.warn('RemoteControl: Invalid token received:', data.token);
+          if (data.type === 'register') {
+            // Generate unique token for client
+            const token = crypto.randomBytes(32).toString('hex');
+            self.connectedClients.set(token, ws);
+            ws.send(JSON.stringify({ type: 'registration', token: token }));
+            self.logger.info('RemoteControl: Client registered with token:', token);
+            
+            // Send initial state
+            self.sendCurrentState(ws);
+          } else if (data.type === 'command') {
+            // Verify token before processing commands
+            if (self.connectedClients.has(data.token)) {
+              self.logger.info('RemoteControl: Processing command:', data.command);
+              self.handleClientCommand(data.command);
+            } else {
+              self.logger.warn('RemoteControl: Invalid token received:', data.token);
+            }
+          }
+        } catch (error) {
+          self.logger.error('RemoteControl: Error processing message: ' + error);
+        }
+      });
+      
+      ws.on('close', function() {
+        // Remove client on disconnect
+        for (const [token, client] of self.connectedClients.entries()) {
+          if (client === ws) {
+            self.connectedClients.delete(token);
+            self.logger.info('RemoteControl: Client disconnected, token removed:', token);
+            break;
           }
         }
-      } catch (error) {
-        self.logger.error('RemoteControl: Error processing message: ' + error);
+      });
+    });
+
+    this.wsServer.on('error', function(error) {
+      if (error.code === 'EADDRINUSE') {
+        self.logger.error('RemoteControl: WebSocket port 16891 is already in use. Plugin will continue without WebSocket server.');
+        self.wsServer = null;
+      } else {
+        self.logger.error('RemoteControl: WebSocket server error: ' + error);
       }
     });
     
-    ws.on('close', function() {
-      // Remove client on disconnect
-      for (const [token, client] of self.connectedClients.entries()) {
-        if (client === ws) {
-          self.connectedClients.delete(token);
-          self.logger.info('RemoteControl: Client disconnected, token removed:', token);
-          break;
-        }
-      }
-    });
-  });
+  } catch (error) {
+    self.logger.error('RemoteControl: Failed to start WebSocket server: ' + error);
+    // Continue without crashing, just disable WebSocket functionality
+    this.wsServer = null;
+  }
   
   // Subscribe to state updates using the correct method
   this.state = this.commandRouter.volumioGetState();
@@ -81,10 +97,12 @@ RemoteControlPlugin.prototype.onStart = function() {
   this.commandRouter.addCallback('volumioStateChanged', (state) => {
     this.state = state;
     self.logger.info('RemoteControl: State changed:', state);
-    // Broadcast to all connected clients
-    for (const client of this.connectedClients.values()) {
-      self.logger.info('RemoteControl: Broadcasting state to client');
-      this.sendCurrentState(client);
+    // Broadcast to all connected clients if WebSocket server exists
+    if (this.wsServer) {
+      for (const client of this.connectedClients.values()) {
+        self.logger.info('RemoteControl: Broadcasting state to client');
+        this.sendCurrentState(client);
+      }
     }
   });
 
@@ -138,8 +156,12 @@ RemoteControlPlugin.prototype.handleClientCommand = function(command) {
 
 RemoteControlPlugin.prototype.onStop = function() {
   if (this.wsServer) {
-    this.wsServer.close();
-    this.logger.info('RemoteControl: WebSocket server stopped');
+    try {
+      this.wsServer.close();
+      this.logger.info('RemoteControl: WebSocket server stopped');
+    } catch (error) {
+      this.logger.error('RemoteControl: Error stopping WebSocket server: ' + error);
+    }
   }
   return libQ.resolve();
 };
