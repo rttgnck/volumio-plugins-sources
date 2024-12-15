@@ -74,10 +74,8 @@ RemoteControlPlugin.prototype.onStart = function() {
   });
   
   // Subscribe to state updates using the correct method
-  this.commandRouter.volumioGetState().then((state) => {
-    this.state = state;
-    self.logger.info('RemoteControl: Initial state received:', state);
-  });
+  this.state = this.commandRouter.volumioGetState();
+  self.logger.info('RemoteControl: Initial state received:', this.state);
 
   // Register callback for state changes
   this.commandRouter.addCallback('volumioStateChanged', (state) => {
@@ -94,29 +92,25 @@ RemoteControlPlugin.prototype.onStart = function() {
 };
 
 RemoteControlPlugin.prototype.sendCurrentState = function(ws) {
-  const self = this;
+  const state = this.commandRouter.volumioGetState();
+  const response = {
+    type: 'state',
+    data: {
+      status: state.status,
+      title: state.title,
+      artist: state.artist,
+      album: state.album,
+      albumart: state.albumart,
+      duration: state.duration,
+      seek: state.seek,
+      samplerate: state.samplerate,
+      bitdepth: state.bitdepth,
+      trackType: state.trackType,
+      volume: state.volume
+    }
+  };
   
-  this.commandRouter.volumioGetState()
-    .then((state) => {
-      const response = {
-        type: 'state',
-        data: {
-          status: state.status,
-          title: state.title,
-          artist: state.artist,
-          album: state.album,
-          albumart: state.albumart,
-          duration: state.duration,
-          seek: state.seek,
-          samplerate: state.samplerate,
-          bitdepth: state.bitdepth,
-          trackType: state.trackType,
-          volume: state.volume
-        }
-      };
-      
-      ws.send(JSON.stringify(response));
-    });
+  ws.send(JSON.stringify(response));
 };
 
 RemoteControlPlugin.prototype.handleClientCommand = function(command) {
