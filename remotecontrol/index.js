@@ -21,12 +21,15 @@ class RemoteControlPlugin {
     this.onPlaybackStateChange = this.onPlaybackStateChange.bind(this);
     this.onTrackChange = this.onTrackChange.bind(this);
     this.initializeListeners = this.initializeListeners.bind(this);
+
+    this.logger.info('RemoteControl: Plugin initialized');
   }
 
   onVolumioStart() {
     const configFile = this.commandRouter.pluginManager.getConfigurationFile(this.context, 'config.json');
     this.config = new (require('v-conf'))();
     this.config.loadFile(configFile);
+    this.logger.info('RemoteControl: Plugin config loaded');
     return libQ.resolve();
   }
 
@@ -35,10 +38,12 @@ class RemoteControlPlugin {
 
     // Initialize state listeners
     this.initializeListeners();
+    this.logger.info('RemoteControl: State listeners initialized');
 
     // Initialize WebSocket server with error handling
     try {
       this.wsServer = new WebSocket.Server({ port: 16891 });
+      this.logger.info('RemoteControl: WebSocket server created on port 16891');
       
       this.wsServer.on('connection', function(ws) {
         self.logger.info('New RemoteControl client connected');
@@ -46,7 +51,7 @@ class RemoteControlPlugin {
         ws.on('message', function(message) {
           try {
             const data = JSON.parse(message);
-            self.logger.info('RemoteControl: Received message:', data);
+            self.logger.info('RemoteControl: Received message:', JSON.stringify(data));
             
             if (data.type === 'register') {
               const token = crypto.randomBytes(32).toString('hex');
@@ -102,25 +107,31 @@ class RemoteControlPlugin {
   initializeListeners() {
     // Get the Volumio socket.io instance
     const io = this.commandRouter.volumioGetSocket();
+    this.logger.info('RemoteControl: Got Volumio socket.io instance');
 
     // Listen for volume changes
     io.on('volume', this.onVolumeChange);
+    this.logger.info('RemoteControl: Volume change listener registered');
 
     // Listen for play state changes  
     io.on('pushState', this.onPlaybackStateChange);
+    this.logger.info('RemoteControl: Playback state change listener registered');
 
     // Listen for track changes
     io.on('queue', this.onTrackChange);
+    this.logger.info('RemoteControl: Track change listener registered');
   }
 
   // Handle volume changes
   onVolumeChange(data) {
+    this.logger.info('RemoteControl: Volume changed:', JSON.stringify(data));
     if (this.wsServer && this.connectedClients.size > 0) {
       const message = JSON.stringify({
         type: 'volume',
         value: data
       });
 
+      this.logger.info('RemoteControl: Broadcasting volume change to clients:', message);
       for (const client of this.connectedClients.values()) {
         if (client.readyState === WebSocket.OPEN) {
           client.send(message);
@@ -131,6 +142,7 @@ class RemoteControlPlugin {
 
   // Handle playback state changes (play/pause/stop)
   onPlaybackStateChange(state) {
+    this.logger.info('RemoteControl: Playback state changed:', JSON.stringify(state));
     this.state = state;
     if (this.wsServer && this.connectedClients.size > 0) {
       const message = JSON.stringify({
@@ -150,6 +162,7 @@ class RemoteControlPlugin {
         }
       });
 
+      this.logger.info('RemoteControl: Broadcasting state change to clients:', message);
       for (const client of this.connectedClients.values()) {
         if (client.readyState === WebSocket.OPEN) {
           client.send(message);
@@ -160,7 +173,11 @@ class RemoteControlPlugin {
 
   // Handle track changes
   onTrackChange(queue) {
-    if (!queue || !queue.length) return;
+    this.logger.info('RemoteControl: Track queue changed:', JSON.stringify(queue));
+    if (!queue || !queue.length) {
+      this.logger.info('RemoteControl: Queue is empty or invalid');
+      return;
+    }
     
     const currentTrack = queue[0];
     if (this.wsServer && this.connectedClients.size > 0) {
@@ -172,6 +189,7 @@ class RemoteControlPlugin {
         duration: currentTrack.duration
       });
 
+      this.logger.info('RemoteControl: Broadcasting track change to clients:', message);
       for (const client of this.connectedClients.values()) {
         if (client.readyState === WebSocket.OPEN) {
           client.send(message);
@@ -204,14 +222,16 @@ class RemoteControlPlugin {
     };
     
     try {
+      this.logger.info('RemoteControl: Sending current state to client:', JSON.stringify(response));
       ws.send(JSON.stringify(response));
-      this.logger.info('RemoteControl: Sent current state to client');
+      this.logger.info('RemoteControl: Sent current state to client successfully');
     } catch (error) {
       this.logger.error('RemoteControl: Error sending current state:', error);
     }
   }
 
   handleClientCommand(command) {
+    this.logger.info('RemoteControl: Handling client command:', command);
     switch (command) {
       case 'toggle':
         this.commandRouter.volumioToggle();
