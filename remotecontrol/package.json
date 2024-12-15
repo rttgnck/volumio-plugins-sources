@@ -29,6 +29,6 @@
 		"kew": "^0.7.0",
 		"v-conf": "^1.4.0",
 		"ws": "^7.4.6",
-		"socket.io-client": "^4.8.1"
+		"socket.io-client": "2.5.0"
 	  }
 }

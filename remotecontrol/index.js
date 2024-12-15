@@ -1,7 +1,7 @@
 'use strict';
 
 const libQ = require('kew');
-const io = require('socket.io-client');
+const socketio = require('socket.io-client');
 
 class VolumioStateTesterPlugin {
   constructor(context) {
@@ -11,7 +11,6 @@ class VolumioStateTesterPlugin {
     this.config = {};
     this.socket = null;
     
-    // Required for plugin interface
     this.broadcastMessage = this.broadcastMessage.bind(this);
     
     this.logger.info('VolumioStateTester: Plugin initialized');
@@ -31,28 +30,43 @@ class VolumioStateTesterPlugin {
 
   onStart() {
     try {
-      // Connect to Volumio's socket as a client
-      this.socket = io.connect('http://localhost:3000');
-      
-      this.socket.on('connect', () => {
-        this.logger.info('VolumioStateTester: Successfully connected to Volumio websocket');
-        
-        // Get initial state
-        this.socket.emit('getState', '', (state) => {
-          this.logger.info('VolumioStateTester: Initial state:', JSON.stringify(state, null, 2));
-        });
+      // Use socket.io-client with matching configuration
+      this.socket = socketio('http://localhost:3000', {
+        perMessageDeflate: false,
+        maxHttpBufferSize: 1e7,
+        transports: ['websocket', 'polling'],
+        // Force same version as server
+        forceNew: true,
+        timeout: 5000,
+        // Match server configuration
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        reconnectionAttempts: 5
+      });
 
-        // Get current queue
-        this.socket.emit('getQueue', '', (queue) => {
-          this.logger.info('VolumioStateTester: Initial queue:', JSON.stringify(queue, null, 2));
-        });
+      this.socket.on('connect', () => {
+        this.logger.info('VolumioStateTester: Connected to Volumio');
+        
+        // Notify volumio about this connection
+        this.socket.emit('initSocket');
+        
+        // Get current state
+        this.socket.emit('getState');
+      });
+
+      this.socket.on('disconnect', () => {
+        this.logger.info('VolumioStateTester: Disconnected from Volumio');
+      });
+
+      this.socket.on('error', (err) => {
+        this.logger.error('VolumioStateTester: Socket error:', err);
       });
 
       this.socket.on('connect_error', (err) => {
         this.logger.error('VolumioStateTester: Connection error:', err);
       });
 
-      // Initialize state event listeners
       this.initializeStateListeners();
 
       return libQ.resolve();
@@ -63,33 +77,27 @@ class VolumioStateTesterPlugin {
   }
 
   initializeStateListeners() {
-    // State changes (play, pause, etc)
+    // State updates
     this.socket.on('pushState', (state) => {
-      this.logger.info('VolumioStateTester: State Change Event Received');
-      this.logger.info('State Data:', JSON.stringify(state, null, 2));
-    });
-
-    // Queue changes
-    this.socket.on('pushQueue', (queue) => {
-      this.logger.info('VolumioStateTester: Queue Change Event Received');
-      this.logger.info('Queue Data:', JSON.stringify(queue, null, 2));
+      this.logger.info('VolumioStateTester: State update:', JSON.stringify(state, null, 2));
     });
 
     // Volume changes
-    this.socket.on('volume', (vol) => {
-      this.logger.info('VolumioStateTester: Volume Changed to:', vol);
+    this.socket.on('pushVolume', (volume) => {
+      this.logger.info('VolumioStateTester: Volume changed:', volume);
     });
 
-    // Seek changes
-    this.socket.on('seek', (data) => {
-      this.logger.info('VolumioStateTester: Seek Event:', data);
+    // Queue updates
+    this.socket.on('pushQueue', (queue) => {
+      this.logger.info('VolumioStateTester: Queue update. Number of tracks:', queue ? queue.length : 0);
     });
   }
 
   onStop() {
     if (this.socket) {
       this.socket.disconnect();
-      this.logger.info('VolumioStateTester: Disconnected from Volumio websocket');
+      this.socket = null;
+      this.logger.info('VolumioStateTester: Plugin stopped');
     }
     return libQ.resolve();
   }
@@ -98,7 +106,6 @@ class VolumioStateTesterPlugin {
     return ['config.json'];
   }
 
-  // Required methods for Volumio plugin interface
   getUIConfig() {
     return libQ.resolve({});
   }
