@@ -10,7 +10,17 @@ class VolumioStateTesterPlugin {
     this.logger = this.context.logger;
     this.socket = null;
     
+    // Required for plugin interface
+    this.broadcastMessage = this.broadcastMessage.bind(this);
+    
     this.logger.info('VolumioStateTester: Plugin initialized');
+  }
+
+  // Required method to handle broadcast messages
+  broadcastMessage(emit, payload) {
+    this.logger.info('VolumioStateTester: Broadcast message received:', emit, payload);
+    // Return a promise as expected by Volumio
+    return libQ.resolve();
   }
 
   onVolumioStart() {
@@ -23,7 +33,12 @@ class VolumioStateTesterPlugin {
   onStart() {
     try {
       // Connect directly to Volumio's socket.io server
-      this.socket = io('http://localhost:3000');
+      this.socket = io('http://localhost:3000', {
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        reconnectionAttempts: 5
+      });
       
       // Connection events
       this.socket.on('connect', () => {
@@ -78,6 +93,10 @@ class VolumioStateTesterPlugin {
     }, 5000); // Check every 5 seconds
   }
 
+  getConfigurationFiles() {
+    return ['config.json'];
+  }
+
   onStop() {
     if (this.socket) {
       this.logger.info('VolumioStateTester: Disconnecting socket');
@@ -86,8 +105,21 @@ class VolumioStateTesterPlugin {
     return libQ.resolve();
   }
 
-  getConfigurationFiles() {
-    return ['config.json'];
+  // Required methods for Volumio plugin interface
+  getUIConfig() {
+    return libQ.resolve({});
+  }
+
+  setUIConfig(data) {
+    return libQ.resolve();
+  }
+
+  getConf(varName) {
+    return this.config.get(varName);
+  }
+
+  setConf(varName, varValue) {
+    this.config.set(varName, varValue);
   }
 }
 
