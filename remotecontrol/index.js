@@ -106,19 +106,19 @@ class RemoteControlPlugin {
   // Initialize all state listeners
   initializeListeners() {
     // Get the Volumio socket.io instance
-    const io = this.commandRouter.volumioGetSocket();
+    const socket = this.commandRouter.volumioGetSocket();
     this.logger.info('RemoteControl: Got Volumio socket.io instance');
 
     // Listen for volume changes
-    io.on('volume', this.onVolumeChange);
+    socket.on('volume', this.onVolumeChange);
     this.logger.info('RemoteControl: Volume change listener registered');
 
     // Listen for play state changes  
-    io.on('pushState', this.onPlaybackStateChange);
+    socket.on('pushState', this.onPlaybackStateChange);
     this.logger.info('RemoteControl: Playback state change listener registered');
 
     // Listen for track changes
-    io.on('queue', this.onTrackChange);
+    socket.on('queue', this.onTrackChange);
     this.logger.info('RemoteControl: Track change listener registered');
   }
 
@@ -143,31 +143,40 @@ class RemoteControlPlugin {
   // Handle playback state changes (play/pause/stop)
   onPlaybackStateChange(state) {
     this.logger.info('RemoteControl: Playback state changed:', JSON.stringify(state));
-    this.state = state;
-    if (this.wsServer && this.connectedClients.size > 0) {
-      const message = JSON.stringify({
-        type: 'state',
-        data: {
-          status: state.status,
-          title: state.title,
-          artist: state.artist,
-          album: state.album,
-          albumart: state.albumart,
-          duration: state.duration,
-          seek: state.seek,
-          samplerate: state.samplerate,
-          bitdepth: state.bitdepth,
-          trackType: state.trackType,
-          volume: state.volume
-        }
-      });
+    
+    try {
+        this.state = state;
+        if (this.wsServer && this.connectedClients.size > 0) {
+            const message = JSON.stringify({
+                type: 'state',
+                data: {
+                    status: state.status,
+                    title: state.title,
+                    artist: state.artist,
+                    album: state.album,
+                    albumart: state.albumart,
+                    duration: state.duration,
+                    seek: state.seek,
+                    samplerate: state.samplerate,
+                    bitdepth: state.bitdepth,
+                    trackType: state.trackType,
+                    volume: state.volume
+                }
+            });
 
-      this.logger.info('RemoteControl: Broadcasting state change to clients:', message);
-      for (const client of this.connectedClients.values()) {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(message);
+            let broadcastCount = 0;
+            for (const client of this.connectedClients.values()) {
+                if (client.readyState === WebSocket.OPEN) {
+                    client.send(message);
+                    broadcastCount++;
+                }
+            }
+            this.logger.info(`RemoteControl: State change broadcast to ${broadcastCount} clients`);
+        } else {
+            this.logger.info('RemoteControl: No clients connected to broadcast state change');
         }
-      }
+    } catch (error) {
+        this.logger.error('RemoteControl: Error broadcasting state change:', error);
     }
   }
 
