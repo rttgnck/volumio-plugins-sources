@@ -31,24 +31,29 @@ RemoteControlPlugin.prototype.onStart = function() {
   this.wsServer = new WebSocket.Server({ port: 16891 });
   
   this.wsServer.on('connection', function(ws) {
-    self.logger.info('New remote control client connected');
+    self.logger.info('New RemoteControl client connected');
     
     ws.on('message', function(message) {
       try {
         const data = JSON.parse(message);
+        self.logger.info('RemoteControl: Received message:', data);
         
         if (data.type === 'register') {
           // Generate unique token for client
           const token = crypto.randomBytes(32).toString('hex');
           self.connectedClients.set(token, ws);
           ws.send(JSON.stringify({ type: 'registration', token: token }));
+          self.logger.info('RemoteControl: Client registered with token:', token);
           
           // Send initial state
           self.sendCurrentState(ws);
         } else if (data.type === 'command') {
           // Verify token before processing commands
           if (self.connectedClients.has(data.token)) {
+            self.logger.info('RemoteControl: Processing command:', data.command);
             self.handleClientCommand(data.command);
+          } else {
+            self.logger.warn('RemoteControl: Invalid token received:', data.token);
           }
         }
       } catch (error) {
@@ -61,7 +66,7 @@ RemoteControlPlugin.prototype.onStart = function() {
       for (const [token, client] of self.connectedClients.entries()) {
         if (client === ws) {
           self.connectedClients.delete(token);
-          self.logger.info('RemoteControl: Client disconnected');
+          self.logger.info('RemoteControl: Client disconnected, token removed:', token);
           break;
         }
       }
@@ -71,13 +76,16 @@ RemoteControlPlugin.prototype.onStart = function() {
   // Subscribe to state updates using the correct method
   this.commandRouter.volumioGetState().then((state) => {
     this.state = state;
+    self.logger.info('RemoteControl: Initial state received:', state);
   });
 
   // Register callback for state changes
   this.commandRouter.addCallback('volumioStateChanged', (state) => {
     this.state = state;
+    self.logger.info('RemoteControl: State changed:', state);
     // Broadcast to all connected clients
     for (const client of this.connectedClients.values()) {
+      self.logger.info('RemoteControl: Broadcasting state to client');
       this.sendCurrentState(client);
     }
   });
