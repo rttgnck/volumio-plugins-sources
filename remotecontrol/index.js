@@ -18,7 +18,7 @@ function RemoteControlPlugin(context) {
   this.connectedClients = new Map(); // Store client connections with their tokens
   
   // Initialize Socket.io connection
-  this.socket = SocketIO.connect('http://volumio.local');
+  this.socket = SocketIO.connect('http://localhost:3000');
 }
 
 RemoteControlPlugin.prototype.onVolumioStart = function() {
