@@ -15,10 +15,8 @@ function RemoteControlPlugin(context) {
   this.logger = this.context.logger;
   this.configManager = this.context.configManager;
   this.wsServer = null;
-  this.connectedClients = new Map(); // Store client connections with their tokens
-  
-  // Initialize Socket.io connection
-  this.socket = SocketIO.connect('http://localhost:3000');
+  this.connectedClients = new Map();
+  this.state = {}; // Initialize state object
 }
 
 RemoteControlPlugin.prototype.onVolumioStart = function() {
@@ -31,6 +29,22 @@ RemoteControlPlugin.prototype.onVolumioStart = function() {
 RemoteControlPlugin.prototype.onStart = function() {
   const self = this;
   
+  // Initialize Socket.io connection with explicit namespace
+  this.socket = SocketIO.connect('http://localhost:3000/push');
+  
+  // Add connection event handlers for Socket.io
+  this.socket.on('connect', () => {
+    self.logger.info('RemoteControl: Successfully connected to Volumio websocket');
+  });
+  
+  this.socket.on('disconnect', () => {
+    self.logger.info('RemoteControl: Disconnected from Volumio websocket');
+  });
+  
+  this.socket.on('error', (error) => {
+    self.logger.error('RemoteControl: Socket.io connection error:', error);
+  });
+
   // Initialize WebSocket server with error handling
   try {
     this.wsServer = new WebSocket.Server({ port: 16891 });
@@ -44,7 +58,6 @@ RemoteControlPlugin.prototype.onStart = function() {
           self.logger.info('RemoteControl: Received message:', data);
           
           if (data.type === 'register') {
-            // Generate unique token for client
             const token = crypto.randomBytes(32).toString('hex');
             self.connectedClients.set(token, ws);
             const response = { type: 'registration', token: token };
@@ -54,7 +67,6 @@ RemoteControlPlugin.prototype.onStart = function() {
             // Send initial state
             self.sendCurrentState(ws);
           } else if (data.type === 'command') {
-            // Verify token before processing commands
             if (self.connectedClients.has(data.token)) {
               self.logger.info('RemoteControl: Processing command:', data.command);
               self.handleClientCommand(data.command);
@@ -68,7 +80,6 @@ RemoteControlPlugin.prototype.onStart = function() {
       });
       
       ws.on('close', function() {
-        // Remove client on disconnect
         for (const [token, client] of self.connectedClients.entries()) {
           if (client === ws) {
             self.connectedClients.delete(token);
@@ -81,7 +92,7 @@ RemoteControlPlugin.prototype.onStart = function() {
 
     this.wsServer.on('error', function(error) {
       if (error.code === 'EADDRINUSE') {
-        self.logger.error('RemoteControl: WebSocket port 16891 is already in use. Plugin will continue without WebSocket server.');
+        self.logger.error('RemoteControl: WebSocket port 16891 is already in use');
         self.wsServer = null;
       } else {
         self.logger.error('RemoteControl: WebSocket server error: ' + error);
@@ -90,20 +101,45 @@ RemoteControlPlugin.prototype.onStart = function() {
     
   } catch (error) {
     self.logger.error('RemoteControl: Failed to start WebSocket server: ' + error);
-    // Continue without crashing, just disable WebSocket functionality
     this.wsServer = null;
   }
   
   // Subscribe to state updates using Socket.io
   this.socket.on('pushState', function(state) {
-    self.state = state;
-    self.logger.info('RemoteControl: State changed:', state);
-    // Broadcast to all connected clients
-    if (self.wsServer && self.connectedClients.size > 0) {
-      for (const client of self.connectedClients.values()) {
-        if (client.readyState === WebSocket.OPEN) {
-          self.logger.info('RemoteControl: Broadcasting state to client');
-          self.sendCurrentState(client);
+    self.logger.info('RemoteControl: Received state update:', state);
+    if (state) {
+      self.state = state; // Update the stored state
+      
+      // Broadcast to all connected clients
+      if (self.wsServer && self.connectedClients.size > 0) {
+        const stateMessage = {
+          type: 'state',
+          data: {
+            status: state.status,
+            title: state.title,
+            artist: state.artist,
+            album: state.album,
+            albumart: state.albumart,
+            duration: state.duration,
+            seek: state.seek,
+            samplerate: state.samplerate,
+            bitdepth: state.bitdepth,
+            trackType: state.trackType,
+            volume: state.volume
+          }
+        };
+        
+        const messageString = JSON.stringify(stateMessage);
+        
+        for (const client of self.connectedClients.values()) {
+          if (client.readyState === WebSocket.OPEN) {
+            try {
+              client.send(messageString);
+              self.logger.info('RemoteControl: State broadcasted to client');
+            } catch (error) {
+              self.logger.error('RemoteControl: Error broadcasting state to client:', error);
+            }
+          }
         }
       }
     }
@@ -113,25 +149,34 @@ RemoteControlPlugin.prototype.onStart = function() {
 };
 
 RemoteControlPlugin.prototype.sendCurrentState = function(ws) {
-  const state = this.state || {};
+  if (!this.state) {
+    this.logger.warn('RemoteControl: No state available to send');
+    return;
+  }
+  
   const response = {
     type: 'state',
     data: {
-      status: state.status,
-      title: state.title,
-      artist: state.artist,
-      album: state.album,
-      albumart: state.albumart,
-      duration: state.duration,
-      seek: state.seek,
-      samplerate: state.samplerate,
-      bitdepth: state.bitdepth,
-      trackType: state.trackType,
-      volume: state.volume
+      status: this.state.status,
+      title: this.state.title,
+      artist: this.state.artist,
+      album: this.state.album,
+      albumart: this.state.albumart,
+      duration: this.state.duration,
+      seek: this.state.seek,
+      samplerate: this.state.samplerate,
+      bitdepth: this.state.bitdepth,
+      trackType: this.state.trackType,
+      volume: this.state.volume
     }
   };
   
-  ws.send(JSON.stringify(response));
+  try {
+    ws.send(JSON.stringify(response));
+    this.logger.info('RemoteControl: Sent current state to client');
+  } catch (error) {
+    this.logger.error('RemoteControl: Error sending current state:', error);
+  }
 };
 
 RemoteControlPlugin.prototype.handleClientCommand = function(command) {
