@@ -10,6 +10,10 @@ class VolumioStateTesterPlugin {
     this.logger = this.context.logger;
     this.config = {};
     this.socket = null;
+    this.clientInfo = {
+      hostname: "VolumioStateTester",
+      uuid: "stateTester-" + Math.random().toString(36).substring(2, 15)
+    };
     
     this.broadcastMessage = this.broadcastMessage.bind(this);
     
@@ -31,60 +35,43 @@ class VolumioStateTesterPlugin {
   onStart() {
     try {
       this.socket = io.connect('http://localhost:3000', {
-      //   reconnection: true,
-      //   reconnectionDelay: 500,
-      //   reconnectionAttempts: Infinity
-      // });
-      // this.socket = socketio('http://localhost:3000', {
-        perMessageDeflate: false,
-        maxHttpBufferSize: 1e7,
-        transports: ['websocket', 'polling'],
-        // Force same version as server
-        forceNew: true,
-        timeout: 5000,
-        // Match server configuration
         reconnection: true,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 5000,
-        reconnectionAttempts: 5
+        reconnectionDelay: 500,
+        reconnectionAttempts: Infinity
       });
 
       this.socket.on('connect', () => {
         this.logger.info('VolumioStateTester: Connected to Volumio');
         
-        // First send init socket with our client info
-        this.socket.emit('initSocket', {
-          "hostname": "VolumioStateTester",
-          "uuid": "stateTester-" + Math.random().toString(36).substring(2, 15)
-        });
+        // Initialize our connection
+        this.socket.emit('initSocket', this.clientInfo);
 
-        // Then register for events
-        this.socket.emit('registerConfigCallback', {
-          "name": "VolumioStateTester",
-          "callback": "stateCallback"
-        });
-
-        // Now request initial state
+        // Get the current state directly from command router first
+        let state = this.commandRouter.volumioGetState();
+        this.logger.info('VolumioStateTester: Direct state check:', JSON.stringify(state, null, 2));
+        
+        // Now get state through socket
         this.socket.emit('getState', '', (state) => {
-          this.logger.info('VolumioStateTester: Initial state received:', JSON.stringify(state, null, 2));
+          if (state) {
+            this.logger.info('VolumioStateTester: Socket state received:', JSON.stringify(state, null, 2));
+          } else {
+            this.logger.warn('VolumioStateTester: Received empty state from socket');
+          }
         });
 
-        // And request queue state
+        // Get current queue
         this.socket.emit('getQueue', '', (queue) => {
-          this.logger.info('VolumioStateTester: Initial queue received:', JSON.stringify(queue, null, 2));
+          if (queue && queue.length) {
+            this.logger.info('VolumioStateTester: Queue received with ' + queue.length + ' items');
+            this.logger.info('First track:', JSON.stringify(queue[0], null, 2));
+          } else {
+            this.logger.info('VolumioStateTester: Queue is empty');
+          }
         });
       });
 
       this.socket.on('disconnect', () => {
         this.logger.info('VolumioStateTester: Disconnected from Volumio');
-      });
-
-      this.socket.on('error', (err) => {
-        this.logger.error('VolumioStateTester: Socket error:', err);
-      });
-
-      this.socket.on('connect_error', (err) => {
-        this.logger.error('VolumioStateTester: Connection error:', err);
       });
 
       this.initializeStateListeners();
@@ -97,17 +84,43 @@ class VolumioStateTesterPlugin {
   }
 
   initializeStateListeners() {
-    // State changes (play, pause, etc)
+    // State changes
     this.socket.on('pushState', (state) => {
+      if (!state) {
+        this.logger.warn('VolumioStateTester: Received empty state update');
+        return;
+      }
+      
       this.logger.info('VolumioStateTester: State Change Event Received');
-      this.logger.info('State Data:', JSON.stringify(state, null, 2));
+      this.logger.info('Status:', state.status);
+      this.logger.info('Current Track:', {
+        title: state.title,
+        artist: state.artist,
+        album: state.album,
+        duration: state.duration,
+        seek: state.seek,
+        samplerate: state.samplerate,
+        bitdepth: state.bitdepth
+      });
+      this.logger.info('Volume:', state.volume);
+      this.logger.info('Mute:', state.mute);
+      this.logger.info('Service:', state.service);
     });
 
     // Queue changes
     this.socket.on('pushQueue', (queue) => {
       this.logger.info('VolumioStateTester: Queue Change Event Received');
       if (queue && queue.length > 0) {
-        this.logger.info('Queue Data:', JSON.stringify(queue, null, 2));
+        this.logger.info('Queue Length:', queue.length);
+        this.logger.info('First Track:', {
+          name: queue[0].name,
+          artist: queue[0].artist,
+          album: queue[0].album,
+          duration: queue[0].duration,
+          service: queue[0].service
+        });
+      } else {
+        this.logger.info('Queue is empty');
       }
     });
 
@@ -116,26 +129,23 @@ class VolumioStateTesterPlugin {
       this.logger.info('VolumioStateTester: Volume Changed to:', vol);
     });
 
-    // Service updates
-    this.socket.on('pushServiceState', (state) => {
-      this.logger.info('VolumioStateTester: Service State Update:', state);
+    // Seek changes
+    this.socket.on('seek', (data) => {
+      this.logger.info('VolumioStateTester: Seek Event:', data);
     });
 
-    // Handle config callbacks
-    this.socket.on('stateCallback', (data) => {
-      this.logger.info('VolumioStateTester: State Callback:', data);
+    // Service state updates
+    this.socket.on('pushServiceState', (state) => {
+      if (!state) {
+        this.logger.warn('VolumioStateTester: Received empty service state');
+        return;
+      }
+      this.logger.info('VolumioStateTester: Service State Update:', state);
     });
   }
 
   onStop() {
     if (this.socket) {
-      // Unregister first
-      this.socket.emit('unregisterConfigCallback', {
-        "name": "VolumioStateTester",
-        "callback": "stateCallback"
-      });
-      
-      // Then disconnect
       this.socket.disconnect();
       this.socket = null;
       this.logger.info('VolumioStateTester: Plugin stopped');
