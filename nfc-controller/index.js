@@ -292,7 +292,7 @@ NFCController.prototype.registerWatchDaemon = async function() {
     self.logger.info(`${MY_LOG_NAME} Registering a thread to poll the NFC reader`);
 
     // Use i2c bus 1 by default
-    const i2cBusNumber = 1;
+    const i2cBusNumber = 3;
     const pollingRate = self.config.get('pollingRate');
     const debounceThreshold = self.config.get('debounceThreshold');
 
