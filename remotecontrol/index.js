@@ -92,19 +92,28 @@ class VolumioStateTesterPlugin {
       }
       
       this.logger.info('VolumioStateTester: State Change Event Received');
-      this.logger.info('Status:', state.status);
+      this.logger.info('Status:', state.status || 'undefined');
       this.logger.info('Current Track:', {
-        title: state.title,
-        artist: state.artist,
-        album: state.album,
-        duration: state.duration,
-        seek: state.seek,
-        samplerate: state.samplerate,
-        bitdepth: state.bitdepth
+        title: state.title || '',
+        artist: state.artist || '',
+        album: state.album || '',
+        duration: state.duration || 0,
+        seek: state.seek || 0,
+        samplerate: state.samplerate || '',
+        bitdepth: state.bitdepth || ''
       });
-      this.logger.info('Volume:', state.volume);
-      this.logger.info('Mute:', state.mute);
-      this.logger.info('Service:', state.service);
+      this.logger.info('Volume:', typeof state.volume !== 'undefined' ? state.volume : 'undefined');
+      this.logger.info('Mute:', typeof state.mute !== 'undefined' ? state.mute : 'undefined');
+      this.logger.info('Service:', state.service || 'undefined');
+
+      // Get current state directly as fallback
+      if (typeof state.volume === 'undefined') {
+        let currentState = this.commandRouter.volumioGetState();
+        if (currentState && typeof currentState.volume !== 'undefined') {
+          state.volume = currentState.volume;
+          this.logger.info('Retrieved volume from direct state:', state.volume);
+        }
+      }
     });
 
     // Queue changes
