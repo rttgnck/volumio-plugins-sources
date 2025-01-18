@@ -1,6 +1,7 @@
 'use strict';
 
 const libQ = require('kew');
+const io = require('socket.io-client');
 const fs = require('fs-extra');
 const WebSocket = require('ws');
 const crypto = require('crypto');
@@ -14,17 +15,22 @@ class RemoteControlPlugin {
     this.wsServer = null;
     this.connectedClients = new Map();
     this.state = {};
+
+    this.config = {};
+    this.socket = null;
+    this.clientInfo = {
+      hostname: "RemoteControl",
+      uuid: "remoteControl-" + Math.random().toString(36).substring(2, 15)
+    };
     
-    // Get socket.io instance
-    // this.volumioSocket = null;
+    this.broadcastMessage = this.broadcastMessage.bind(this);
     
-    // Bind methods
-    // this.onVolumeChange = this.onVolumeChange.bind(this);
-    // this.onPlaybackStateChange = this.onPlaybackStateChange.bind(this);
-    // this.onQueueChange = this.onQueueChange.bind(this);
-    // this.initializeListeners = this.initializeListeners.bind(this);
-    
-    // this.logger.info('RemoteControl: Plugin initialized');
+    this.logger.info('RemoteControl: Plugin initialized');
+  }
+
+  broadcastMessage(emit, payload) {
+    this.logger.info('RemoteControl: Broadcast message received:', emit, payload);
+    return libQ.resolve();
   }
 
   onVolumioStart() {
@@ -35,15 +41,54 @@ class RemoteControlPlugin {
   }
 
   onStart() {
-    // // Get volumio socket instance
-    // this.volumioSocket = this.commandRouter.volumioGetSocket();
-    // if (!this.volumioSocket) {
-    //   this.logger.error('RemoteControl: Failed to get Volumio socket instance');
-    //   return libQ.reject(new Error('Failed to get Volumio socket'));
-    // }
-
-    // Initialize WebSocket server
+    // Initialize WebSocket server and client
     try {
+      // Initialize Volumio socket
+      this.socket = io.connect('http://localhost:3000', {
+        reconnection: true,
+        reconnectionDelay: 500,
+        reconnectionAttempts: Infinity
+      });
+
+      this.socket.on('connect', () => {
+        this.logger.info('RemoteControl: Connected to Volumio');
+        
+        // Initialize our connection
+        this.socket.emit('initSocket', this.clientInfo);
+
+        // Get the current state directly from command router first
+        let state = this.commandRouter.volumioGetState();
+        this.logger.info('RemoteControl: Direct state check:', JSON.stringify(state, null, 2));
+        
+        // Now get state through socket
+        this.socket.emit('getState', '', (state) => {
+          if (state) {
+            this.logger.info('RemoteControl: Socket state received:', JSON.stringify(state, null, 2));
+          } else {
+            this.logger.warn('RemoteControl: Received empty state from socket');
+          }
+        });
+
+        // Get current queue
+        this.socket.emit('getQueue', '', (queue) => {
+          if (queue && queue.length) {
+            this.logger.info('RemoteControl: Queue received with ' + queue.length + ' items');
+            this.logger.info('First track:', JSON.stringify(queue[0], null, 2));
+          } else {
+            this.logger.info('RemoteControl: Queue is empty');
+          }
+        });
+      });
+
+      this.socket.on('disconnect', () => {
+        this.logger.info('RemoteControl: Disconnected from Volumio');
+      });
+
+      this.initializeStateListeners();
+
+
+
+      // Initialize WebSocket server for remote control
       this.wsServer = new WebSocket.Server({ port: 16891 });
       this.logger.info('RemoteControl: WebSocket server created on port 16891');
       
@@ -81,63 +126,73 @@ class RemoteControlPlugin {
         });
       });
 
-      // Initialize Volumio event listeners
-      // this.initializeListeners();
-
+      return libQ.resolve();
     } catch (error) {
       this.logger.error('RemoteControl: Failed to start:', error);
       return libQ.reject(error);
     }
-
-    return libQ.resolve();
   }
 
-  // initializeListeners() {
-  //   // Volume changes
-  //   this.volumioSocket.on('volume', (data) => {
-  //     this.logger.info('RemoteControl: Volume changed:', data);
-  //     this.broadcastToClients({
-  //       type: 'volume',
-  //       value: data
-  //     });
-  //   });
+  initializeStateListeners() {
+    // State changes
+    this.socket.on('pushState', (state) => {
+      if (!state) {
+        this.logger.warn('VolumioStateTester: Received empty state update');
+        return;
+      }
+      
+      this.logger.info('VolumioStateTester: State Change Event Received');
+      this.logger.info('Status:', state.status);
+      this.logger.info('Current Track:', {
+        title: state.title,
+        artist: state.artist,
+        album: state.album,
+        duration: state.duration,
+        seek: state.seek,
+        samplerate: state.samplerate,
+        bitdepth: state.bitdepth
+      });
+      this.logger.info('Volume:', state.volume);
+      this.logger.info('Mute:', state.mute);
+      this.logger.info('Service:', state.service);
+    });
 
-  //   // State changes
-  //   this.volumioSocket.on('pushState', (state) => {
-  //     this.logger.info('RemoteControl: State changed:', state);
-  //     this.state = state;
-  //     this.broadcastToClients({
-  //       type: 'state',
-  //       data: {
-  //         status: state.status,
-  //         title: state.title,
-  //         artist: state.artist,
-  //         album: state.album,
-  //         albumart: state.albumart,
-  //         duration: state.duration,
-  //         seek: state.seek,
-  //         samplerate: state.samplerate,
-  //         bitdepth: state.bitdepth,
-  //         trackType: state.trackType,
-  //         volume: state.volume
-  //       }
-  //     });
-  //   });
+    // Queue changes
+    this.socket.on('pushQueue', (queue) => {
+      this.logger.info('VolumioStateTester: Queue Change Event Received');
+      if (queue && queue.length > 0) {
+        this.logger.info('Queue Length:', queue.length);
+        this.logger.info('First Track:', {
+          name: queue[0].name,
+          artist: queue[0].artist,
+          album: queue[0].album,
+          duration: queue[0].duration,
+          service: queue[0].service
+        });
+      } else {
+        this.logger.info('Queue is empty');
+      }
+    });
 
-  //   // Queue changes
-  //   this.volumioSocket.on('pushQueue', (queue) => {
-  //     this.logger.info('RemoteControl: Queue changed:', queue);
-  //     if (queue && queue.length > 0) {
-  //       this.broadcastToClients({
-  //         type: 'trackChange',
-  //         title: queue[0].name,
-  //         artist: queue[0].artist,
-  //         album: queue[0].album,
-  //         duration: queue[0].duration
-  //       });
-  //     }
-  //   });
-  // }
+    // Volume changes
+    this.socket.on('volume', (vol) => {
+      this.logger.info('VolumioStateTester: Volume Changed to:', vol);
+    });
+
+    // Seek changes
+    this.socket.on('seek', (data) => {
+      this.logger.info('VolumioStateTester: Seek Event:', data);
+    });
+
+    // Service state updates
+    this.socket.on('pushServiceState', (state) => {
+      if (!state) {
+        this.logger.warn('VolumioStateTester: Received empty service state');
+        return;
+      }
+      this.logger.info('VolumioStateTester: Service State Update:', state);
+    });
+  }
 
   broadcastToClients(message) {
     const messageStr = JSON.stringify(message);
@@ -204,12 +259,31 @@ class RemoteControlPlugin {
   onStop() {
     if (this.wsServer) {
       this.wsServer.close();
+      this.socket.disconnect();
+      this.socket = null;
+      this.logger.info('RemoteControl: Plugin stopped');
     }
     return libQ.resolve();
   }
 
   getConfigurationFiles() {
     return ['config.json'];
+  }
+
+  getUIConfig() {
+    return libQ.resolve({});
+  }
+
+  setUIConfig(data) {
+    return libQ.resolve();
+  }
+
+  getConf(varName) {
+    return this.config.get(varName);
+  }
+
+  setConf(varName, varValue) {
+    this.config.set(varName, varValue);
   }
 }
 
