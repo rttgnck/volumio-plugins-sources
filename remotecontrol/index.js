@@ -19,9 +19,9 @@ class RemoteControlPlugin {
     this.volumioSocket = null;
     
     // Bind methods
-    this.onVolumeChange = this.onVolumeChange.bind(this);
-    this.onPlaybackStateChange = this.onPlaybackStateChange.bind(this);
-    this.onQueueChange = this.onQueueChange.bind(this);
+    // this.onVolumeChange = this.onVolumeChange.bind(this);
+    // this.onPlaybackStateChange = this.onPlaybackStateChange.bind(this);
+    // this.onQueueChange = this.onQueueChange.bind(this);
     this.initializeListeners = this.initializeListeners.bind(this);
     
     this.logger.info('RemoteControl: Plugin initialized');
