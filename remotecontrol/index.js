@@ -41,7 +41,7 @@ class VolumioStateTesterPlugin {
   onStart() {
     try {
       // First, get the Volumio socket instance directly from commandRouter
-      this.volumioSocket = this.commandRouter.volumioGetSocket();
+      this.volumioSocket = 3000;
       if (!this.volumioSocket) {
         throw new Error('Failed to get Volumio socket instance');
       }
