@@ -20,7 +20,7 @@ class RemoteControlPlugin {
     this.onVolumeChange = this.onVolumeChange.bind(this);
     this.onPlaybackStateChange = this.onPlaybackStateChange.bind(this);
     this.onTrackChange = this.onTrackChange.bind(this);
-    this.initializeListeners = this.initializeListeners.bind(this);
+    // this.initializeListeners = this.initializeListeners.bind(this);
   }
 
   onVolumioStart() {
@@ -34,7 +34,7 @@ class RemoteControlPlugin {
     const self = this;
 
     // Initialize state listeners
-    this.initializeListeners();
+    // this.initializeListeners();
 
     // Initialize WebSocket server with error handling
     try {
@@ -98,20 +98,20 @@ class RemoteControlPlugin {
     return libQ.resolve();
   }
 
-  // Initialize all state listeners
-  initializeListeners() {
-    // Get the Volumio socket.io instance
-    const io = this.commandRouter.volumioGetSocket();
+  // // Initialize all state listeners
+  // initializeListeners() {
+  //   // Get the Volumio socket.io instance
+  //   const io = this.commandRouter.volumioGetSocket();
 
-    // Listen for volume changes
-    io.on('volume', this.onVolumeChange);
+  //   // Listen for volume changes
+  //   io.on('volume', this.onVolumeChange);
 
-    // Listen for play state changes  
-    io.on('pushState', this.onPlaybackStateChange);
+  //   // Listen for play state changes  
+  //   io.on('pushState', this.onPlaybackStateChange);
 
-    // Listen for track changes
-    io.on('queue', this.onTrackChange);
-  }
+  //   // Listen for track changes
+  //   io.on('queue', this.onTrackChange);
+  // }
 
   // Handle volume changes
   onVolumeChange(data) {
