@@ -27,9 +27,14 @@ class VolumioStateTesterPlugin {
     this.logger.info('VolumioStateTester: Plugin initialized');
   }
 
-  broadcastToClients(message) {
+  broadcastMessage(emit, payload) {
+    this.logger.info('VolumioStateTester: Core broadcast received:', emit, payload);
+    return libQ.resolve();
+  }
+
+  broadcastToWebSocketClients(message) {
     const messageStr = JSON.stringify(message);
-    this.logger.info('VolumioStateTester: Broadcasting to clients:', messageStr);
+    this.logger.info('VolumioStateTester: Broadcasting to WebSocket clients:', messageStr);
     
     for (const client of this.connectedClients.values()) {
       if (client.readyState === WebSocket.OPEN) {
@@ -91,7 +96,7 @@ class VolumioStateTesterPlugin {
               
               // Send initial state if available
               if (this.state) {
-                this.broadcastToClients({
+                this.broadcastToWebSocketClients({
                   type: 'state',
                   data: this.state
                 });
@@ -160,7 +165,7 @@ class VolumioStateTesterPlugin {
       this.logger.info('Service:', state.service || 'undefined');
 
       // Broadcast state to all connected clients
-      this.broadcastToClients({
+      this.broadcastToWebSocketClients({
         type: 'state',
         data: {
           status: state.status,
@@ -181,7 +186,7 @@ class VolumioStateTesterPlugin {
     // Volume changes
     this.socket.on('volume', (vol) => {
       this.logger.info('VolumioStateTester: Volume Changed to:', vol);
-      this.broadcastToClients({
+      this.broadcastToWebSocketClients({
         type: 'volume',
         value: vol
       });
@@ -191,7 +196,7 @@ class VolumioStateTesterPlugin {
     this.socket.on('pushQueue', (queue) => {
       if (queue && queue.length > 0) {
         this.logger.info('VolumioStateTester: Queue Change Event Received');
-        this.broadcastToClients({
+        this.broadcastToWebSocketClients({
           type: 'trackChange',
           title: queue[0].name,
           artist: queue[0].artist,
@@ -217,6 +222,22 @@ class VolumioStateTesterPlugin {
 
   getConfigurationFiles() {
     return ['config.json'];
+  }
+
+  getUIConfig() {
+    return libQ.resolve({});
+  }
+
+  setUIConfig(data) {
+    return libQ.resolve();
+  }
+
+  getConf(varName) {
+    return this.config.get(varName);
+  }
+
+  setConf(varName, varValue) {
+    this.config.set(varName, varValue);
   }
 }
 
