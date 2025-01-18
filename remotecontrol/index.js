@@ -137,24 +137,29 @@ class RemoteControlPlugin {
     // State changes
     this.socket.on('pushState', (state) => {
       if (!state) {
-        this.logger.warn('VolumioStateTester: Received empty state update');
+        this.logger.warn('RemoteControl: Received empty state update');
         return;
       }
       
-      this.logger.info('VolumioStateTester: State Change Event Received');
-      this.logger.info('Status:', state.status);
-      this.logger.info('Current Track:', {
-        title: state.title,
-        artist: state.artist,
-        album: state.album,
-        duration: state.duration,
-        seek: state.seek,
-        samplerate: state.samplerate,
-        bitdepth: state.bitdepth
+      // Store the current state
+      this.state = state;
+      
+      // Broadcast the state to all connected clients
+      this.broadcastToClients({
+        type: 'state',
+        data: {
+          status: state.status,
+          title: state.title,
+          artist: state.artist,
+          album: state.album,
+          albumart: state.albumart,
+          duration: state.duration,
+          seek: state.seek,
+          samplerate: state.samplerate,
+          bitdepth: state.bitdepth,
+          volume: state.volume
+        }
       });
-      this.logger.info('Volume:', state.volume);
-      this.logger.info('Mute:', state.mute);
-      this.logger.info('Service:', state.service);
     });
 
     // Queue changes
