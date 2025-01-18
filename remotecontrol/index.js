@@ -237,19 +237,19 @@ class RemoteControlPlugin {
     
     switch (command) {
       case 'toggle':
-        this.volumioSocket.emit('play');
+        this.socket.emit('play');
         break;
       case 'next':
-        this.volumioSocket.emit('next');
+        this.socket.emit('next');
         break;
       case 'previous':
-        this.volumioSocket.emit('prev');
+        this.socket.emit('prev');
         break;
       case 'volume_up':
-        this.volumioSocket.emit('volume', '+');
+        this.socket.emit('volume', '+');
         break;
       case 'volume_down':
-        this.volumioSocket.emit('volume', '-');
+        this.socket.emit('volume', '-');
         break;
       default:
         this.logger.warn('RemoteControl: Unknown command:', command);
