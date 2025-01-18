@@ -16,15 +16,15 @@ class RemoteControlPlugin {
     this.state = {};
     
     // Get socket.io instance
-    this.volumioSocket = null;
+    // this.volumioSocket = null;
     
     // Bind methods
-    this.onVolumeChange = this.onVolumeChange.bind(this);
-    this.onPlaybackStateChange = this.onPlaybackStateChange.bind(this);
-    this.onQueueChange = this.onQueueChange.bind(this);
-    this.initializeListeners = this.initializeListeners.bind(this);
+    // this.onVolumeChange = this.onVolumeChange.bind(this);
+    // this.onPlaybackStateChange = this.onPlaybackStateChange.bind(this);
+    // this.onQueueChange = this.onQueueChange.bind(this);
+    // this.initializeListeners = this.initializeListeners.bind(this);
     
-    this.logger.info('RemoteControl: Plugin initialized');
+    // this.logger.info('RemoteControl: Plugin initialized');
   }
 
   onVolumioStart() {
@@ -35,12 +35,12 @@ class RemoteControlPlugin {
   }
 
   onStart() {
-    // Get volumio socket instance
-    this.volumioSocket = this.commandRouter.volumioGetSocket();
-    if (!this.volumioSocket) {
-      this.logger.error('RemoteControl: Failed to get Volumio socket instance');
-      return libQ.reject(new Error('Failed to get Volumio socket'));
-    }
+    // // Get volumio socket instance
+    // this.volumioSocket = this.commandRouter.volumioGetSocket();
+    // if (!this.volumioSocket) {
+    //   this.logger.error('RemoteControl: Failed to get Volumio socket instance');
+    //   return libQ.reject(new Error('Failed to get Volumio socket'));
+    // }
 
     // Initialize WebSocket server
     try {
@@ -82,7 +82,7 @@ class RemoteControlPlugin {
       });
 
       // Initialize Volumio event listeners
-      this.initializeListeners();
+      // this.initializeListeners();
 
     } catch (error) {
       this.logger.error('RemoteControl: Failed to start:', error);
@@ -92,52 +92,52 @@ class RemoteControlPlugin {
     return libQ.resolve();
   }
 
-  initializeListeners() {
-    // Volume changes
-    this.volumioSocket.on('volume', (data) => {
-      this.logger.info('RemoteControl: Volume changed:', data);
-      this.broadcastToClients({
-        type: 'volume',
-        value: data
-      });
-    });
+  // initializeListeners() {
+  //   // Volume changes
+  //   this.volumioSocket.on('volume', (data) => {
+  //     this.logger.info('RemoteControl: Volume changed:', data);
+  //     this.broadcastToClients({
+  //       type: 'volume',
+  //       value: data
+  //     });
+  //   });
 
-    // State changes
-    this.volumioSocket.on('pushState', (state) => {
-      this.logger.info('RemoteControl: State changed:', state);
-      this.state = state;
-      this.broadcastToClients({
-        type: 'state',
-        data: {
-          status: state.status,
-          title: state.title,
-          artist: state.artist,
-          album: state.album,
-          albumart: state.albumart,
-          duration: state.duration,
-          seek: state.seek,
-          samplerate: state.samplerate,
-          bitdepth: state.bitdepth,
-          trackType: state.trackType,
-          volume: state.volume
-        }
-      });
-    });
+  //   // State changes
+  //   this.volumioSocket.on('pushState', (state) => {
+  //     this.logger.info('RemoteControl: State changed:', state);
+  //     this.state = state;
+  //     this.broadcastToClients({
+  //       type: 'state',
+  //       data: {
+  //         status: state.status,
+  //         title: state.title,
+  //         artist: state.artist,
+  //         album: state.album,
+  //         albumart: state.albumart,
+  //         duration: state.duration,
+  //         seek: state.seek,
+  //         samplerate: state.samplerate,
+  //         bitdepth: state.bitdepth,
+  //         trackType: state.trackType,
+  //         volume: state.volume
+  //       }
+  //     });
+  //   });
 
-    // Queue changes
-    this.volumioSocket.on('pushQueue', (queue) => {
-      this.logger.info('RemoteControl: Queue changed:', queue);
-      if (queue && queue.length > 0) {
-        this.broadcastToClients({
-          type: 'trackChange',
-          title: queue[0].name,
-          artist: queue[0].artist,
-          album: queue[0].album,
-          duration: queue[0].duration
-        });
-      }
-    });
-  }
+  //   // Queue changes
+  //   this.volumioSocket.on('pushQueue', (queue) => {
+  //     this.logger.info('RemoteControl: Queue changed:', queue);
+  //     if (queue && queue.length > 0) {
+  //       this.broadcastToClients({
+  //         type: 'trackChange',
+  //         title: queue[0].name,
+  //         artist: queue[0].artist,
+  //         album: queue[0].album,
+  //         duration: queue[0].duration
+  //       });
+  //     }
+  //   });
+  // }
 
   broadcastToClients(message) {
     const messageStr = JSON.stringify(message);
@@ -180,25 +180,25 @@ class RemoteControlPlugin {
   handleClientCommand(command) {
     this.logger.info('RemoteControl: Handling command:', command);
     
-    switch (command) {
-      case 'toggle':
-        this.volumioSocket.emit('play');
-        break;
-      case 'next':
-        this.volumioSocket.emit('next');
-        break;
-      case 'previous':
-        this.volumioSocket.emit('prev');
-        break;
-      case 'volume_up':
-        this.volumioSocket.emit('volume', '+');
-        break;
-      case 'volume_down':
-        this.volumioSocket.emit('volume', '-');
-        break;
-      default:
-        this.logger.warn('RemoteControl: Unknown command:', command);
-    }
+    // switch (command) {
+    //   case 'toggle':
+    //     this.volumioSocket.emit('play');
+    //     break;
+    //   case 'next':
+    //     this.volumioSocket.emit('next');
+    //     break;
+    //   case 'previous':
+    //     this.volumioSocket.emit('prev');
+    //     break;
+    //   case 'volume_up':
+    //     this.volumioSocket.emit('volume', '+');
+    //     break;
+    //   case 'volume_down':
+    //     this.volumioSocket.emit('volume', '-');
+    //     break;
+    //   default:
+    //     this.logger.warn('RemoteControl: Unknown command:', command);
+    // }
   }
 
   onStop() {
