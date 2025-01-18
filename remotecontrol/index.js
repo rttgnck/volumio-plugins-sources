@@ -81,6 +81,20 @@ class VolumioStateTesterPlugin {
       this.wsServer = new WebSocket.Server({ port });
       this.logger.info(`VolumioStateTester: WebSocket server created on port ${port}`);
       
+      // Connect to Volumio socket (this should use port 3000)
+      this.socket = io.connect('http://localhost:3000', {
+        reconnection: true,
+        reconnectionDelay: 500,
+        reconnectionAttempts: Infinity
+      });
+
+      this.socket.on('connect', () => {
+        this.logger.info('VolumioStateTester: Connected to Volumio');
+        this.socket.emit('initSocket', this.clientInfo);
+        this.initializeStateListeners();
+      });
+
+      // Set up WebSocket server connection handler
       this.wsServer.on('connection', (ws) => {
         this.logger.info('VolumioStateTester: New client connected');
         
@@ -118,19 +132,6 @@ class VolumioStateTesterPlugin {
             }
           }
         });
-      });
-
-      // Connect to Volumio socket
-      this.socket = io.connect('http://localhost:3000', {
-        reconnection: true,
-        reconnectionDelay: 500,
-        reconnectionAttempts: Infinity
-      });
-
-      this.socket.on('connect', () => {
-        this.logger.info('VolumioStateTester: Connected to Volumio');
-        this.socket.emit('initSocket', this.clientInfo);
-        this.initializeStateListeners();
       });
 
       return libQ.resolve();
