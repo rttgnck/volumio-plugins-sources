@@ -242,7 +242,11 @@ class RemoteControlPlugin {
     
     switch (command) {
       case 'toggle':
-        this.socket.emit('play');
+        if (this.state.status === 'play') {
+          this.socket.emit('pause');
+        } else {
+          this.socket.emit('play');
+        }
         break;
       case 'next':
         this.socket.emit('next');
