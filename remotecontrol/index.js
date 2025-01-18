@@ -2,6 +2,8 @@
 
 const libQ = require('kew');
 const io = require('socket.io-client');
+const WebSocket = require('ws');
+const crypto = require('crypto');
 
 class VolumioStateTesterPlugin {
   constructor(context) {
@@ -10,19 +12,54 @@ class VolumioStateTesterPlugin {
     this.logger = this.context.logger;
     this.config = {};
     this.socket = null;
+    this.wsServer = null;
+    this.connectedClients = new Map();
+    this.state = {};
+    
     this.clientInfo = {
       hostname: "VolumioStateTester",
       uuid: "stateTester-" + Math.random().toString(36).substring(2, 15)
     };
     
     this.broadcastMessage = this.broadcastMessage.bind(this);
+    this.handleClientCommand = this.handleClientCommand.bind(this);
     
     this.logger.info('VolumioStateTester: Plugin initialized');
   }
 
-  broadcastMessage(emit, payload) {
-    this.logger.info('VolumioStateTester: Broadcast message received:', emit, payload);
-    return libQ.resolve();
+  broadcastToClients(message) {
+    const messageStr = JSON.stringify(message);
+    this.logger.info('VolumioStateTester: Broadcasting to clients:', messageStr);
+    
+    for (const client of this.connectedClients.values()) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(messageStr);
+      }
+    }
+  }
+
+  handleClientCommand(command) {
+    this.logger.info('VolumioStateTester: Handling command:', command);
+    
+    switch (command) {
+      case 'toggle':
+        this.socket.emit('play');
+        break;
+      case 'next':
+        this.socket.emit('next');
+        break;
+      case 'previous':
+        this.socket.emit('prev');
+        break;
+      case 'volume_up':
+        this.socket.emit('volume', '+');
+        break;
+      case 'volume_down':
+        this.socket.emit('volume', '-');
+        break;
+      default:
+        this.logger.warn('VolumioStateTester: Unknown command:', command);
+    }
   }
 
   onVolumioStart() {
@@ -34,6 +71,51 @@ class VolumioStateTesterPlugin {
 
   onStart() {
     try {
+      // Initialize WebSocket server first
+      const port = this.config.get('port') || 16891;
+      this.wsServer = new WebSocket.Server({ port });
+      this.logger.info(`VolumioStateTester: WebSocket server created on port ${port}`);
+      
+      this.wsServer.on('connection', (ws) => {
+        this.logger.info('VolumioStateTester: New client connected');
+        
+        ws.on('message', (message) => {
+          try {
+            const data = JSON.parse(message);
+            this.logger.info('VolumioStateTester: Received message:', data);
+            
+            if (data.type === 'register') {
+              const token = crypto.randomBytes(32).toString('hex');
+              this.connectedClients.set(token, ws);
+              ws.send(JSON.stringify({ type: 'registration', token }));
+              
+              // Send initial state if available
+              if (this.state) {
+                this.broadcastToClients({
+                  type: 'state',
+                  data: this.state
+                });
+              }
+            } 
+            else if (data.type === 'command' && this.connectedClients.has(data.token)) {
+              this.handleClientCommand(data.command);
+            }
+          } catch (error) {
+            this.logger.error('VolumioStateTester: Error processing message:', error);
+          }
+        });
+        
+        ws.on('close', () => {
+          for (const [token, client] of this.connectedClients.entries()) {
+            if (client === ws) {
+              this.connectedClients.delete(token);
+              break;
+            }
+          }
+        });
+      });
+
+      // Connect to Volumio socket
       this.socket = io.connect('http://localhost:3000', {
         reconnection: true,
         reconnectionDelay: 500,
@@ -42,39 +124,9 @@ class VolumioStateTesterPlugin {
 
       this.socket.on('connect', () => {
         this.logger.info('VolumioStateTester: Connected to Volumio');
-        
-        // Initialize our connection
         this.socket.emit('initSocket', this.clientInfo);
-
-        // Get the current state directly from command router first
-        let state = this.commandRouter.volumioGetState();
-        this.logger.info('VolumioStateTester: Direct state check:', JSON.stringify(state, null, 2));
-        
-        // Now get state through socket
-        this.socket.emit('getState', '', (state) => {
-          if (state) {
-            this.logger.info('VolumioStateTester: Socket state received:', JSON.stringify(state, null, 2));
-          } else {
-            this.logger.warn('VolumioStateTester: Received empty state from socket');
-          }
-        });
-
-        // Get current queue
-        this.socket.emit('getQueue', '', (queue) => {
-          if (queue && queue.length) {
-            this.logger.info('VolumioStateTester: Queue received with ' + queue.length + ' items');
-            this.logger.info('First track:', JSON.stringify(queue[0], null, 2));
-          } else {
-            this.logger.info('VolumioStateTester: Queue is empty');
-          }
-        });
+        this.initializeStateListeners();
       });
-
-      this.socket.on('disconnect', () => {
-        this.logger.info('VolumioStateTester: Disconnected from Volumio');
-      });
-
-      this.initializeStateListeners();
 
       return libQ.resolve();
     } catch (error) {
@@ -91,6 +143,7 @@ class VolumioStateTesterPlugin {
         return;
       }
       
+      this.state = state;
       this.logger.info('VolumioStateTester: State Change Event Received');
       this.logger.info('Status:', state.status || 'undefined');
       this.logger.info('Current Track:', {
@@ -106,50 +159,46 @@ class VolumioStateTesterPlugin {
       this.logger.info('Mute:', typeof state.mute !== 'undefined' ? state.mute : 'undefined');
       this.logger.info('Service:', state.service || 'undefined');
 
-      // Get current state directly as fallback
-      if (typeof state.volume === 'undefined') {
-        let currentState = this.commandRouter.volumioGetState();
-        if (currentState && typeof currentState.volume !== 'undefined') {
-          state.volume = currentState.volume;
-          this.logger.info('Retrieved volume from direct state:', state.volume);
+      // Broadcast state to all connected clients
+      this.broadcastToClients({
+        type: 'state',
+        data: {
+          status: state.status,
+          title: state.title,
+          artist: state.artist,
+          album: state.album,
+          albumart: state.albumart,
+          duration: state.duration,
+          seek: state.seek,
+          samplerate: state.samplerate,
+          bitdepth: state.bitdepth,
+          trackType: state.trackType,
+          volume: state.volume
         }
-      }
-    });
-
-    // Queue changes
-    this.socket.on('pushQueue', (queue) => {
-      this.logger.info('VolumioStateTester: Queue Change Event Received');
-      if (queue && queue.length > 0) {
-        this.logger.info('Queue Length:', queue.length);
-        this.logger.info('First Track:', {
-          name: queue[0].name,
-          artist: queue[0].artist,
-          album: queue[0].album,
-          duration: queue[0].duration,
-          service: queue[0].service
-        });
-      } else {
-        this.logger.info('Queue is empty');
-      }
+      });
     });
 
     // Volume changes
     this.socket.on('volume', (vol) => {
       this.logger.info('VolumioStateTester: Volume Changed to:', vol);
+      this.broadcastToClients({
+        type: 'volume',
+        value: vol
+      });
     });
 
-    // Seek changes
-    this.socket.on('seek', (data) => {
-      this.logger.info('VolumioStateTester: Seek Event:', data);
-    });
-
-    // Service state updates
-    this.socket.on('pushServiceState', (state) => {
-      if (!state) {
-        this.logger.warn('VolumioStateTester: Received empty service state');
-        return;
+    // Queue changes
+    this.socket.on('pushQueue', (queue) => {
+      if (queue && queue.length > 0) {
+        this.logger.info('VolumioStateTester: Queue Change Event Received');
+        this.broadcastToClients({
+          type: 'trackChange',
+          title: queue[0].name,
+          artist: queue[0].artist,
+          album: queue[0].album,
+          duration: queue[0].duration
+        });
       }
-      this.logger.info('VolumioStateTester: Service State Update:', state);
     });
   }
 
@@ -157,29 +206,17 @@ class VolumioStateTesterPlugin {
     if (this.socket) {
       this.socket.disconnect();
       this.socket = null;
-      this.logger.info('VolumioStateTester: Plugin stopped');
     }
+    if (this.wsServer) {
+      this.wsServer.close();
+      this.wsServer = null;
+    }
+    this.logger.info('VolumioStateTester: Plugin stopped');
     return libQ.resolve();
   }
 
   getConfigurationFiles() {
     return ['config.json'];
-  }
-
-  getUIConfig() {
-    return libQ.resolve({});
-  }
-
-  setUIConfig(data) {
-    return libQ.resolve();
-  }
-
-  getConf(varName) {
-    return this.config.get(varName);
-  }
-
-  setConf(varName, varValue) {
-    this.config.set(varName, varValue);
   }
 }
 
