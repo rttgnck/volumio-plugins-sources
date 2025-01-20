@@ -108,7 +108,8 @@ class RemoteControlPlugin {
               // Send initial state
               this.sendCurrentState(ws);
             } 
-            else if (data.type === 'command' && this.connectedClients.has(data.token)) {
+            // else if (data.type === 'command' && this.connectedClients.has(data.token)) {
+            else if (data.type === 'command') {
               this.handleClientCommand(data.command);
             }
           } catch (error) {
