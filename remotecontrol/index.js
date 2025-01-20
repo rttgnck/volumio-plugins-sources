@@ -197,6 +197,27 @@ class RemoteControlPlugin {
       }
       this.logger.info('VolumioStateTester: Service State Update:', state);
     });
+
+    // Add these socket event handlers
+    this.socket.on('play', () => {
+        this.logger.info('Play command received');
+    });
+
+    this.socket.on('pause', () => {
+        this.logger.info('Pause command received');
+    });
+
+    this.socket.on('stop', () => {
+        this.logger.info('Stop command received');
+    });
+
+    this.socket.on('prev', () => {
+        this.logger.info('Previous command received');
+    });
+
+    this.socket.on('next', () => {
+        this.logger.info('Next command received');
+    });
   }
 
   broadcastToClients(message) {
@@ -240,28 +261,51 @@ class RemoteControlPlugin {
   handleClientCommand(command) {
     this.logger.info('RemoteControl: Handling command:', command);
     
-    switch (command) {
-      case 'toggle':
-        if (this.state.status === 'play') {
-          this.socket.emit('pause');
-        } else {
-          this.socket.emit('play');
+    // Parse volume commands that come in format "volume XX"
+    if (command.startsWith('volume ')) {
+        const volumeLevel = parseInt(command.split(' ')[1]);
+        if (!isNaN(volumeLevel)) {
+            this.socket.emit('volume', volumeLevel);
+            return;
         }
-        break;
-      case 'next':
-        this.socket.emit('next');
-        break;
-      case 'previous':
-        this.socket.emit('prev');
-        break;
-      case 'volume_up':
-        this.socket.emit('volume', '+');
-        break;
-      case 'volume_down':
-        this.socket.emit('volume', '-');
-        break;
-      default:
-        this.logger.warn('RemoteControl: Unknown command:', command);
+    }
+    
+    switch (command) {
+        case 'toggle':
+            if (this.state.status === 'play') {
+                this.socket.emit('pause');
+            } else {
+                this.socket.emit('play');
+            }
+            break;
+        case 'next':
+            this.socket.emit('next');
+            break;
+        case 'previous':
+            this.socket.emit('prev');
+            break;
+        case 'stop':
+            this.socket.emit('stop');
+            break;
+        case 'play':
+            this.socket.emit('play');
+            break;
+        case 'pause':
+            this.socket.emit('pause');
+            break;
+        case 'getState':
+            // Send current state back to client
+            this.sendCurrentState(this.connectedClients.get(data.token));
+            break;
+        default:
+            if (command.startsWith('seek ')) {
+                const seekValue = parseInt(command.split(' ')[1]);
+                if (!isNaN(seekValue)) {
+                    this.socket.emit('seek', seekValue);
+                }
+            } else {
+                this.logger.warn('RemoteControl: Unknown command:', command);
+            }
     }
   }
 
